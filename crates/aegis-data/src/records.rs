@@ -91,3 +91,22 @@ pub struct BacktestRunRow {
     pub params: Value,
     pub metrics: Value,
 }
+
+/// A risk-reducing management command (close / modify / cancel).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommandRecord {
+    pub cid: String,
+    /// `close` | `modify` | `cancel`
+    pub action: String,
+    pub ticket: i64,
+    pub symbol: String,
+    pub volume: f64,
+    pub sl: f64,
+    pub tp: f64,
+    pub reason: String,
+    pub status: String,
+    pub retcode: Option<i64>,
+    pub message: Option<String>,
+    pub created_ms: TimestampMs,
+    pub updated_ms: TimestampMs,
+}

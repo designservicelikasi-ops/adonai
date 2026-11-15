@@ -621,6 +621,75 @@ impl Store {
         Ok(rows.into_iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
     }
 
+    // ------------------------------------------------------------- commands
+
+    pub async fn insert_command(&self, c: &CommandRecord) -> DataResult<()> {
+        sqlx::query(
+            "INSERT INTO commands (cid, action, ticket, symbol, volume, sl, tp, reason, status, retcode, message, created_ms, updated_ms)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        )
+        .bind(&c.cid)
+        .bind(&c.action)
+        .bind(c.ticket)
+        .bind(&c.symbol)
+        .bind(c.volume)
+        .bind(c.sl)
+        .bind(c.tp)
+        .bind(&c.reason)
+        .bind(&c.status)
+        .bind(c.retcode)
+        .bind(&c.message)
+        .bind(c.created_ms)
+        .bind(c.updated_ms)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| map_unique(e, &c.cid))?;
+        Ok(())
+    }
+
+    pub async fn update_command(&self, cid: &str, status: &str, retcode: Option<i64>, message: Option<&str>) -> DataResult<()> {
+        let n = sqlx::query(
+            "UPDATE commands SET status = ?, retcode = COALESCE(?, retcode), message = COALESCE(?, message), updated_ms = ? WHERE cid = ?",
+        )
+        .bind(status)
+        .bind(retcode)
+        .bind(message)
+        .bind(now_ms())
+        .bind(cid)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if n == 0 {
+            return Err(DataError::NotFound(format!("command {cid}")));
+        }
+        Ok(())
+    }
+
+    pub async fn recent_commands(&self, limit: i64) -> DataResult<Vec<CommandRecord>> {
+        let rows = sqlx::query("SELECT * FROM commands ORDER BY created_ms DESC LIMIT ?")
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| CommandRecord {
+                cid: r.get("cid"),
+                action: r.get("action"),
+                ticket: r.get("ticket"),
+                symbol: r.get("symbol"),
+                volume: r.get("volume"),
+                sl: r.get("sl"),
+                tp: r.get("tp"),
+                reason: r.get("reason"),
+                status: r.get("status"),
+                retcode: r.get("retcode"),
+                message: r.get("message"),
+                created_ms: r.get("created_ms"),
+                updated_ms: r.get("updated_ms"),
+            })
+            .collect())
+    }
+
     // ------------------------------------------------------------ positions
 
     /// Replace the open-position picture with the broker's snapshot (atomic).

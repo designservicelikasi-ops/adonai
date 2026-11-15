@@ -30,6 +30,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-execution"
+version = "0.1.0"
+dependencies = [
+ "aegis-data",
+ "aegis-protocol",
+ "aegis-risk",
+ "aegis-types",
+ "hex",
+ "rand",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "aegis-learning"
 version = "0.1.0"
 dependencies = [
