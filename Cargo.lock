@@ -18,6 +18,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-market"
+version = "0.1.0"
+dependencies = [
+ "aegis-types",
+ "serde",
+]
+
+[[package]]
+name = "aegis-protocol"
+version = "0.1.0"
+dependencies = [
+ "aegis-types",
+ "hex",
+ "hmac",
+ "rand",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "aegis-risk"
 version = "0.1.0"
 dependencies = [

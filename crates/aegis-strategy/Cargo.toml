@@ -1,0 +1,12 @@
+[package]
+name = "aegis-strategy"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+aegis-types.workspace = true
+aegis-market.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

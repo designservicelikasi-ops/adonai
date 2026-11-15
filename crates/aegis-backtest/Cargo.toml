@@ -1,0 +1,13 @@
+[package]
+name = "aegis-backtest"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+aegis-types.workspace = true
+aegis-market.workspace = true
+aegis-strategy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
