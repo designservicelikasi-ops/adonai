@@ -41,6 +41,8 @@ pub enum Command {
 }
 
 pub(crate) enum Internal {
+    /// Result of the background database probe.
+    DbPing(Result<(), String>),
     BacktestDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<BacktestDetail>, String> },
 }
 
@@ -379,6 +381,19 @@ impl Engine {
 
     pub(crate) async fn on_internal(&mut self, msg: Internal) {
         match msg {
+            Internal::DbPing(result) => {
+                self.ping_in_flight = false;
+                match result {
+                    Ok(()) => {
+                        if !self.db_ok {
+                            self.db_ok = true;
+                            self.log("info", "data", "base de données de nouveau disponible".into());
+                            self.audit("engine", "database_recovered", json!({})).await;
+                        }
+                    }
+                    Err(e) => self.db_failed(&e),
+                }
+            }
             Internal::BacktestDone { reply, outcome } => {
                 let out = match outcome {
                     Ok(detail) => {

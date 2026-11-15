@@ -28,8 +28,10 @@ impl Engine {
 
     pub(crate) async fn on_closed_bar(&mut self, bar: ClosedBar) {
         let origin = self.origin();
-        if let Err(e) = self.store.insert_candles(&bar.symbol, bar.timeframe, origin, &[bar.candle]).await {
-            self.db_failed(&e.to_string());
+        if self.db_ok {
+            if let Err(e) = self.store.insert_candles(&bar.symbol, bar.timeframe, origin, &[bar.candle]).await {
+                self.db_failed(&e.to_string());
+            }
         }
         let bars = self.market.candles(&bar.symbol, bar.timeframe);
 
@@ -224,13 +226,15 @@ impl Engine {
             outcome: outcome.to_string(),
             verdict: Some(json!({ "engine_checks": dv.engine_checks, "risk": dv.assessment })),
         };
-        let persisted = match self.store.insert_decision(&record).await {
-            Ok(()) => true,
-            Err(e) => {
-                self.db_failed(&format!("décision: {e}"));
-                false
-            }
-        };
+        // A decision that cannot be recorded can never lead to an order.
+        let persisted = self.db_ok
+            && match self.store.insert_decision(&record).await {
+                Ok(()) => true,
+                Err(e) => {
+                    self.db_failed(&format!("décision: {e}"));
+                    false
+                }
+            };
 
         if outcome == "approved" && persisted {
             let auth = dv.assessment.authorization.clone().expect("approved decisions carry an authorization");

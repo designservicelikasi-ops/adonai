@@ -7,6 +7,10 @@
 //!   says so, or when reconciliation finds its position on the account.
 //! * Every state change is persisted before the caller sends anything.
 
+// `!(a >= b)` is used on purpose: unlike `a < b`, it is also true when a value is NaN,
+// so a missing or corrupt number can never pass a check.
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
+
 use aegis_data::{CommandRecord, DataError, OrderRecord, OrderUpdate, Store};
 use aegis_protocol::{Body, OrderAction};
 use aegis_risk::{AuthError, Authorization, RiskEngine};

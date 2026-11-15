@@ -79,7 +79,7 @@ impl Store {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Full)
             .foreign_keys(true)
-            .busy_timeout(Duration::from_secs(10));
+            .busy_timeout(Duration::from_secs(2));
         let pool = SqlitePoolOptions::new().max_connections(4).connect_with(opts).await?;
         MIGRATOR.run(&pool).await?;
         Ok(Store { pool, audit_lock: Default::default(), path: Some(path.to_path_buf()) })
@@ -97,14 +97,21 @@ impl Store {
         self.path.as_deref()
     }
 
+    /// Close the database. The write-ahead log is first folded back into the main
+    /// file, so that after a clean stop `aegis.db` alone holds everything.
     pub async fn close(&self) {
+        if self.path.is_some() {
+            if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&self.pool).await {
+                tracing::warn!("checkpoint on close failed (the data stays safe in the write-ahead log): {e}");
+            }
+        }
         self.pool.close().await;
     }
 
-    /// Cheap liveness probe used by the supervisor.
+    /// Liveness probe used by the supervisor. It WRITES, because a database that can
+    /// be read but not written cannot record decisions and must count as down.
     pub async fn ping(&self) -> DataResult<()> {
-        sqlx::query("SELECT 1").execute(&self.pool).await?;
-        Ok(())
+        self.kv_set("_ping", &now_ms()).await
     }
 
     // ---------------------------------------------------------------- audit

@@ -97,6 +97,7 @@ pub(crate) struct Engine {
     pub logs: VecDeque<LogLine>,
     pub cache: Cache,
     pub db_ok: bool,
+    pub ping_in_flight: bool,
     pub audit_verified: Option<u64>,
     pub audit_error: Option<String>,
     pub last_backup: Option<String>,
@@ -115,7 +116,7 @@ pub struct EngineHandle {
     pub view: watch::Receiver<Arc<EngineView>>,
     pub bridge_addr: SocketAddr,
     commands: mpsc::Sender<(Command, oneshot::Sender<Reply>)>,
-    task: tokio::task::JoinHandle<()>,
+    task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl EngineHandle {
@@ -137,9 +138,18 @@ impl EngineHandle {
         self.view.borrow().clone()
     }
 
-    pub async fn shutdown(self) {
+    /// Stop the engine and wait until its storage is closed. Works through a shared
+    /// handle (the HTTP API keeps clones of it), and is harmless when called twice.
+    pub async fn stop(&self) {
         let _ = self.command(Command::Shutdown).await;
-        let _ = self.task.await;
+        let task = self.task.lock().ok().and_then(|mut t| t.take());
+        if let Some(task) = task {
+            let _ = task.await;
+        }
+    }
+
+    pub async fn shutdown(self) {
+        self.stop().await;
     }
 }
 
@@ -269,6 +279,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         logs: VecDeque::new(),
         cache: Cache { dirty: true, ..Default::default() },
         db_ok: true,
+        ping_in_flight: false,
         audit_verified: None,
         audit_error: None,
         last_backup: None,
@@ -303,7 +314,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
     }
     engine.publish().await;
     let task = tokio::spawn(engine.run(ev_rx, cmd_rx, internal_rx));
-    Ok(EngineHandle { view: view_rx, bridge_addr, commands: cmd_tx, task })
+    Ok(EngineHandle { view: view_rx, bridge_addr, commands: cmd_tx, task: std::sync::Mutex::new(Some(task)) })
 }
 
 fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
@@ -402,6 +413,12 @@ impl Engine {
 
     /// Append to the audit trail. A failure marks the database as down (fail closed).
     pub(crate) async fn audit(&mut self, actor: &str, event: &str, detail: serde_json::Value) {
+        if !self.db_ok {
+            // The database is down: do not stall the engine on it. The event still
+            // goes to the log file; trading entries are blocked meanwhile.
+            tracing::warn!(actor, event, %detail, "audit entry not persisted: database unavailable");
+            return;
+        }
         if let Err(e) = self.store.audit(actor, event, &detail).await {
             self.db_failed(&format!("audit `{event}`: {e}"));
         }
@@ -648,7 +665,7 @@ impl Engine {
         if changed {
             self.persist_accounting().await;
         }
-        if a.ts_ms - self.last_snapshot_persist_ms >= 10_000 {
+        if self.db_ok && a.ts_ms - self.last_snapshot_persist_ms >= 10_000 {
             self.last_snapshot_persist_ms = a.ts_ms;
             if let Err(e) = self.store.insert_account_snapshot(&a).await {
                 self.db_failed(&e.to_string());
@@ -665,6 +682,9 @@ impl Engine {
     }
 
     pub(crate) async fn persist_accounting(&mut self) {
+        if !self.db_ok {
+            return;
+        }
         if let Some(acc) = &self.accounting {
             if let Err(e) = self.store.kv_set("accounting", acc).await {
                 self.db_failed(&e.to_string());
@@ -675,8 +695,10 @@ impl Engine {
     async fn on_snapshot(&mut self, positions: Vec<Position>, pending: Vec<PendingOrder>, now: TimestampMs) {
         let closed: Vec<i64> = self.positions.iter().map(|p| p.ticket).filter(|t| !positions.iter().any(|p| p.ticket == *t)).collect();
         let opened: Vec<i64> = positions.iter().map(|p| p.ticket).filter(|t| !self.positions.iter().any(|p| p.ticket == *t)).collect();
-        if let Err(e) = self.store.sync_positions(&positions).await {
-            self.db_failed(&e.to_string());
+        if self.db_ok {
+            if let Err(e) = self.store.sync_positions(&positions).await {
+                self.db_failed(&e.to_string());
+            }
         }
         match self.executor.reconcile(&positions, &pending, now).await {
             Ok(events) => {
@@ -816,17 +838,15 @@ impl Engine {
             }
             Err(e) => self.db_failed(&e.to_string()),
         }
-        if now - self.last_db_ping_ms >= 3_000 {
+        // The probe runs in the background so a stuck database never stalls the engine.
+        if now - self.last_db_ping_ms >= 3_000 && !self.ping_in_flight {
             self.last_db_ping_ms = now;
-            match self.store.ping().await {
-                Ok(()) => {
-                    if !self.db_ok {
-                        self.db_ok = true;
-                        self.log("info", "data", "base de données de nouveau disponible".into());
-                    }
-                }
-                Err(e) => self.db_failed(&e.to_string()),
-            }
+            self.ping_in_flight = true;
+            let (store, tx) = (self.store.clone(), self.internal_tx.clone());
+            tokio::spawn(async move {
+                let result = store.ping().await.map_err(|e| e.to_string());
+                let _ = tx.send(Internal::DbPing(result)).await;
+            });
         }
         if now - self.last_retention_ms >= 86_400_000 {
             self.last_retention_ms = now;

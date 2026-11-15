@@ -194,8 +194,8 @@ async fn run(cfg: EngineConfig, simulator: bool) -> anyhow::Result<()> {
     if let Some(s) = sim {
         s.stop().await;
     }
-    if let Ok(engine) = Arc::try_unwrap(engine) {
-        engine.shutdown().await;
-    }
+    // The API task holds clones of the handle: stop through the shared reference so
+    // the engine always closes its database cleanly.
+    engine.stop().await;
     Ok(())
 }

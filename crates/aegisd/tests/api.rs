@@ -24,7 +24,7 @@ async fn http(addr: std::net::SocketAddr, method: &str, path: &str, token: Optio
 async fn api_requires_the_token_and_drives_the_engine() {
     let dir = std::env::temp_dir().join(format!("aegis-api-{}", new_id("t")));
     let mut cfg = EngineConfig::default();
-    cfg.engine.data_dir = dir;
+    cfg.engine.data_dir = dir.clone();
     cfg.bridge.listen = "127.0.0.1:0".into();
     cfg.bridge.shared_key_env = "AEGIS_API_TEST_KEY_NOT_SET".into();
     let engine = Arc::new(start(cfg).await.unwrap());
@@ -60,4 +60,13 @@ async fn api_requires_the_token_and_drives_the_engine() {
     assert_eq!(http(addr, "POST", "/api/v1/kill/reset", Some(TOKEN), r#"{"phrase":"wrong"}"#).await.0, 409);
     assert_eq!(http(addr, "POST", "/api/v1/kill/reset", Some(TOKEN), r#"{"phrase":"RESET AEGIS"}"#).await.0, 200);
     assert!(!engine.snapshot().kill.active);
+
+    // The API still holds clones of the handle: the engine must stop cleanly anyway,
+    // which folds the write-ahead log back into the main database file.
+    engine.stop().await;
+    let wal_bytes = std::fs::metadata(dir.join("aegis.db-wal")).map(|m| m.len()).unwrap_or(0);
+    assert_eq!(wal_bytes, 0, "the database was not closed cleanly");
+    assert!(engine.command(aegis_core::Command::VerifyAudit).await.is_err(), "a stopped engine accepts no command");
+    assert_eq!(http(addr, "POST", "/api/v1/kill", Some(TOKEN), "{}").await.0, 409, "the API reports the stopped engine");
+    engine.stop().await; // a second call is harmless
 }

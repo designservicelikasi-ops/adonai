@@ -1,0 +1,10 @@
+[project]
+name = "aegis-research"
+version = "0.1.0"
+description = "AEGIS research environment: model training and validation"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "polars>=1.0",
+    "scikit-learn>=1.4",
+]

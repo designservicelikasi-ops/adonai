@@ -28,3 +28,4 @@ rand.workspace = true
 
 [dev-dependencies]
 aegis-simterminal.workspace = true
+sqlx.workspace = true

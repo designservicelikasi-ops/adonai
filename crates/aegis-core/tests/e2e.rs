@@ -561,3 +561,35 @@ async fn backtests_are_reproducible_stored_and_feed_the_evidence() {
     assert!(h.snapshot().data.last_backup.is_some());
     h.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn database_failure_blocks_entries_and_is_reported() {
+    use sqlx::Connection;
+    let r = rig("dbfail", 400, true).await;
+    let h = &r.h;
+    wait_for(h, "live prices", |v| v.market(SIM_SYMBOL).is_some_and(|m| m.tradable())).await;
+
+    // Another process takes the write lock: the engine can no longer record anything.
+    let url = format!("sqlite://{}", r.dir.join("aegis.db").display());
+    let mut locker = sqlx::SqliteConnection::connect(&url).await.unwrap();
+    sqlx::query("BEGIN EXCLUSIVE").execute(&mut locker).await.unwrap();
+
+    let v = wait_for(h, "database reported as down", |v| !v.data.db_ok).await;
+    assert!(v.health.iter().any(|x| x.name == "Données" && x.status == aegis_core::view::HealthStatus::Down));
+    assert!(v.logs.iter().any(|l| l.text.contains("base de données indisponible")));
+
+    // The breakout happens while the database is down: it must not be traded.
+    let v = wait_for(h, "breakout decision while the database is down", |v| breakout_decision(v).is_some()).await;
+    let d = breakout_decision(&v).unwrap();
+    assert_eq!(d.outcome, "rejected");
+    assert!(d.cid.is_none());
+    assert!(d.failures().iter().any(|f| f.starts_with("base_de_donnees")), "{:?}", d.failures());
+    assert!(v.orders.is_empty() && v.positions.is_empty(), "an order that cannot be recorded is never sent");
+
+    // The lock is released: the engine recovers by itself.
+    sqlx::query("ROLLBACK").execute(&mut locker).await.unwrap();
+    locker.close().await.unwrap();
+    wait_for(h, "database back", |v| v.data.db_ok).await;
+    r.sim.stop().await;
+    r.h.shutdown().await;
+}

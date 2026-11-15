@@ -354,6 +354,24 @@ pub(crate) mod tests {
         assert!(!m.gate(&c).passed);
     }
 
+    /// The artifact committed in models/ was produced by research/train.py (Python).
+    /// Loading it here proves the two implementations agree.
+    #[test]
+    fn python_trained_model_loads_with_matching_inference_and_is_gated() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/demo-synthetic-model.json");
+        let m = ModelArtifact::load(&path).expect("the demo model must load");
+        assert_eq!(m.kind, "logistic_regression");
+        assert!(m.parity.len() >= 5);
+        assert!(m.parity_error() < 1e-12, "Rust and Python disagree by {}", m.parity_error());
+        assert_eq!(m.drift_reference.len(), FEATURE_NAMES.len());
+        assert!(m.validation.folds.len() >= 4 && m.validation.n_samples > 10_000);
+        // Whatever its score, a model trained on synthetic data is refused.
+        assert_eq!(m.origin, DataOrigin::Synthetic);
+        let gate = m.gate(&GateCriteria::default());
+        assert!(!gate.passed);
+        assert!(gate.failures.iter().any(|f| f.contains("synthétiques")));
+    }
+
     #[test]
     fn load_roundtrip_and_errors() {
         let dir = std::env::temp_dir().join(format!("aegis-model-{}", aegis_types::new_id("t")));
