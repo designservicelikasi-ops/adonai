@@ -86,7 +86,7 @@ pub enum Body {
 fn ok_symbol(s: &str) -> Result<(), String> {
     let valid = !s.is_empty()
         && s.len() <= 32
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '#' | '+' | '!'));
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '#' | '+' | '!' | '/' | '&' | '$' | ' '));
     if valid { Ok(()) } else { Err(format!("invalid symbol `{}`", s.chars().take(40).collect::<String>())) }
 }
 

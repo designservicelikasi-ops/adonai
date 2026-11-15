@@ -1,0 +1,21 @@
+[package]
+name = "aegisd"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "AEGIS headless engine (for a Linux VPS) and command-line tools"
+
+[dependencies]
+aegis-types.workspace = true
+aegis-core.workspace = true
+aegis-data.workspace = true
+aegis-backtest.workspace = true
+aegis-strategy.workspace = true
+aegis-simterminal.workspace = true
+aegis-learning.workspace = true
+tokio.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

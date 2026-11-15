@@ -206,6 +206,8 @@ pub struct EngineView {
     pub account: Option<AccountSnapshot>,
     pub specs: Vec<SymbolSpec>,
     pub markets: Vec<MarketSnapshot>,
+    /// Recent closes for charts: (symbol, timeframe, [(bar time, close)]).
+    pub charts: Vec<(String, Timeframe, Vec<(TimestampMs, f64)>)>,
     pub signal_timeframes: Vec<Timeframe>,
     pub positions: Vec<Position>,
     /// Tickets of positions AEGIS did not open.

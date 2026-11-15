@@ -168,7 +168,7 @@ fn version_size_and_content_validation() {
     // Authentic but invalid content is still refused.
     let bad = [
         Body::Tick { symbol: "EURUSD".into(), time: NOW, bid: 1.2, ask: 1.1 },
-        Body::Tick { symbol: "EUR USD;DROP".into(), time: NOW, bid: 1.1, ask: 1.2 },
+        Body::Tick { symbol: "EURUSD\";DROP".into(), time: NOW, bid: 1.1, ask: 1.2 },
         Body::Tick { symbol: "EURUSD".into(), time: NOW, bid: -1.0, ask: 1.2 },
         Body::Bar { symbol: "EURUSD".into(), tf: "M7".into(), time: NOW, open: 1.0, high: 1.0, low: 1.0, close: 1.0, volume: 1, spread: 0.0, last: false },
         Body::Result { cid: "".into(), ok: true, retcode: 0, ticket: 0, price: 0.0, volume: 0.0, msg: "".into() },

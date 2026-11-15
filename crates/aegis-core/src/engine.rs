@@ -319,6 +319,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         account: None,
         specs: Vec::new(),
         markets: Vec::new(),
+        charts: Vec::new(),
         signal_timeframes: cfg.engine.signal_timeframes.clone(),
         positions: Vec::new(),
         foreign_tickets: Vec::new(),
@@ -998,6 +999,17 @@ impl Engine {
             account: self.account.clone(),
             specs,
             markets: self.market.symbols().iter().filter_map(|s| self.market.snapshot(s, now)).collect(),
+            charts: self
+                .market
+                .symbols()
+                .iter()
+                .flat_map(|s| self.cfg.engine.signal_timeframes.iter().map(move |tf| (s.clone(), *tf)))
+                .map(|(s, tf)| {
+                    let bars = self.market.candles(&s, tf);
+                    let from = bars.len().saturating_sub(300);
+                    (s, tf, bars[from..].iter().map(|c| (c.open_ts, c.close)).collect())
+                })
+                .collect(),
             signal_timeframes: self.cfg.engine.signal_timeframes.clone(),
             foreign_tickets: self.positions.iter().filter(|p| p.magic != magic).map(|p| p.ticket).collect(),
             positions: self.positions.clone(),
