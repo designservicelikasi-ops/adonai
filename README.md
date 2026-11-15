@@ -65,3 +65,4 @@ Les limites connues sont listées sans détour dans `KNOWN_LIMITATIONS.md`.
 | `ARCHITECTURE.md`, `DECISIONS.md` | Architecture et décisions techniques |
 | `TEST_REPORT.md`, `KNOWN_LIMITATIONS.md` | Ce qui a été testé, ce qui ne l'a pas été |
 | `PROJECT_STATUS.md`, `CHANGELOG.md` | Avancement et historique |
+| `docs/SPECIFICATION.md` | La demande d'origine, telle quelle |

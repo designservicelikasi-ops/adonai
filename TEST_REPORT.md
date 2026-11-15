@@ -111,6 +111,13 @@ style (nombre d'arguments, types longs), sans incidence sur le comportement.
 - `aegis` (application de bureau) : le processus reste actif et le port du pont écoute. La
   fenêtre n'a pas été inspectée.
 
+## Archive source
+
+`dist/aegis-0.1.0-source.zip` a été décompressée dans un dossier vide et `./scripts/test.sh`
+y a été relancé : **159 réussis, 0 échoué**. L'archive contient donc tout ce qu'il faut pour
+compiler et tester (les bibliothèques sont téléchargées par `cargo` à la première
+compilation).
+
 ## NON VÉRIFIÉ
 
 | Élément | Raison |
