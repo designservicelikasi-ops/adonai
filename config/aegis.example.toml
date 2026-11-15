@@ -1,0 +1,78 @@
+# AEGIS — exemple de configuration.
+# Copiez ce fichier en `config/aegis.toml` puis adaptez-le.
+# Une clé inconnue ou une valeur hors limites empêche le démarrage (rien n'est ignoré en silence).
+#
+# SECRETS : ils ne s'écrivent jamais ici.
+#   - clé partagée moteur <-> MT5 : variable d'environnement AEGIS_SHARED_KEY
+#     (à défaut, AEGIS crée data/shared.key, lisible uniquement par vous) ;
+#   - jeton de l'API HTTP : variable d'environnement AEGIS_API_TOKEN.
+
+[engine]
+data_dir = "data"                # base de données, journaux, sauvegardes, clé
+symbols = []                     # instruments autorisés ; vide = ceux envoyés par le connecteur MT5
+signal_timeframes = ["M15"]      # unités de temps sur lesquelles les stratégies sont évaluées
+history_bars = 500               # bougies demandées au terminal à la connexion
+
+[bridge]
+listen = "127.0.0.1:7878"        # adresse où le connecteur MT5 se connecte (gardez-la locale ou privée)
+max_skew_ms = 30000              # écart d'horloge toléré entre le PC MT5 et le moteur
+peer_timeout_ms = 10000          # silence du terminal avant coupure
+shared_key_env = "AEGIS_SHARED_KEY"
+
+[api]
+enabled = false                  # API HTTP de contrôle (moteur sans interface, sur un VPS)
+listen = "127.0.0.1:7879"
+token_env = "AEGIS_API_TOKEN"
+
+[risk]
+# Valeurs INITIALES. Dès que vous modifiez les limites dans l'application,
+# la version enregistrée en base prend le pas sur ce fichier.
+risk_per_trade_pct = 0.5         # perte maximale par transaction, en % de l'équité
+max_daily_loss_pct = 2.0         # perte nette du jour (réalisé + flottant) qui bloque les entrées
+max_drawdown_pct = 10.0          # recul depuis le plus haut d'équité qui déclenche l'arrêt d'urgence
+max_open_positions = 3
+max_positions_per_symbol = 1
+max_notional_leverage = 5.0      # exposition notionnelle totale / équité
+max_spread_points = 25.0
+max_slippage_points = 10.0       # au-delà, le connecteur refuse d'exécuter
+min_net_expected_profit = 0.5    # espérance nette minimale par transaction (devise du compte)
+daily_profit_target_pct = 1.0    # objectif du jour : atteint = plus d'entrées. 0 = désactivé
+max_tick_age_ms = 5000
+max_account_age_ms = 15000
+authorization_ttl_ms = 3000      # durée de vie d'une autorisation d'ordre
+commission_per_lot_round_turn = 7.0   # À ADAPTER À VOTRE BROKER (MT5 ne la fournit pas)
+expected_slippage_points = 2.0
+conversion_fee_pct = 0.0
+expected_holding_nights = 0.0
+kill_cancel_pending = true       # arrêt d'urgence : annuler les ordres en attente d'AEGIS
+kill_position_policy = "keep"    # "keep" = conserver les positions avec leurs SL/TP ; "close" = les clôturer
+
+[market]
+timeframes = ["M1", "M5", "M15", "H1"]
+series_capacity = 1500
+stale_after_ms = 5000            # prix considéré obsolète
+abnormal_spread_factor = 4.0     # spread anormal = x fois la médiane récente
+max_clock_offset_ms = 120000
+
+[execution]
+magic = 20260115                 # doit être identique dans le connecteur MT5
+result_timeout_ms = 5000
+reconcile_grace_ms = 3000
+
+[learning]
+model_path = ""                  # ex. "models/model.json" ; vide = aucun modèle
+
+[learning.gate]                  # critères qu'un modèle doit satisfaire pour filtrer les entrées
+min_samples = 2000
+min_folds = 4
+min_auc_mean = 0.55
+min_auc_each_fold = 0.5
+min_brier_improvement = 0.002
+max_ece = 0.05
+
+[safety]
+live_trading_enabled = false     # LIVE AUTO est impossible tant que ceci vaut false
+
+[retention]
+candle_days = 1095
+snapshot_days = 180

@@ -1,0 +1,27 @@
+# Compilation et tests sur Linux, Windows et macOS.
+# NON VÉRIFIÉ : ce fichier n'a jamais été exécuté (le projet a été développé sur macOS uniquement).
+name: build
+on: [push, pull_request]
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Bibliothèques système (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev libgl1-mesa-dev
+      - run: cargo test --workspace --all-features
+      - run: cargo build --release -p aegis-control -p aegisd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aegis-${{ matrix.os }}
+          path: |
+            target/release/aegis
+            target/release/aegisd
+            target/release/aegis.exe
+            target/release/aegisd.exe
