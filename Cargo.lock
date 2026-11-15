@@ -3,6 +3,18 @@
 version = 4
 
 [[package]]
+name = "aegis-backtest"
+version = "0.1.0"
+dependencies = [
+ "aegis-market",
+ "aegis-strategy",
+ "aegis-types",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "aegis-data"
 version = "0.1.0"
 dependencies = [
@@ -50,6 +62,17 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "aegis-strategy"
+version = "0.1.0"
+dependencies = [
+ "aegis-market",
+ "aegis-types",
+ "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 
