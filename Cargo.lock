@@ -30,6 +30,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aegis-learning"
+version = "0.1.0"
+dependencies = [
+ "aegis-market",
+ "aegis-types",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "aegis-market"
 version = "0.1.0"
 dependencies = [
