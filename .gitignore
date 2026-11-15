@@ -1,0 +1,14 @@
+/target
+/data/
+/logs/
+/backups/*.db
+/dist/
+*.db
+*.db-wal
+*.db-shm
+.env
+config/aegis.toml
+research/.venv/
+research/__pycache__/
+research/out/
+.DS_Store
