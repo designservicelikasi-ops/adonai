@@ -13,7 +13,11 @@
 //! strictly increasing sequence number and a bounded timestamp, which together
 //! defeat replays within and across sessions.
 
+pub mod handshake;
+#[cfg(feature = "io")]
+pub mod io;
 mod messages;
+pub use handshake::{client_finish, client_hello, server_accept, HelloInfo};
 pub use messages::*;
 
 use aegis_types::TimestampMs;

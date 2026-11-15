@@ -139,6 +139,12 @@ impl MarketEngine {
         &self.cfg
     }
 
+    /// Enable or disable the broker/engine clock comparison. The simulator runs on
+    /// accelerated market time, so the comparison is meaningless for it.
+    pub fn set_clock_check(&mut self, enabled: bool, default_ms: i64) {
+        self.cfg.max_clock_offset_ms = if enabled { default_ms } else { i64::MAX / 4 };
+    }
+
     /// Register an instrument (idempotent). `point` comes from the broker specification.
     pub fn register_symbol(&mut self, symbol: &str, point: f64) {
         let cfg = &self.cfg;

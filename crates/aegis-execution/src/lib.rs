@@ -113,6 +113,8 @@ pub struct Executor {
     cfg: ExecConfig,
     orders: HashMap<String, InFlight>,
     commands: HashMap<String, CommandInFlight>,
+    /// cid -> position ticket, learnt from closing deals whose position AEGIS opened.
+    closed_origins: HashMap<String, i64>,
 }
 
 /// Short unique client id; fits in an MT5 order comment (31 chars max).
@@ -122,7 +124,7 @@ pub fn new_cid() -> String {
 
 impl Executor {
     pub fn new(store: Store, cfg: ExecConfig) -> Self {
-        Executor { store, cfg, orders: HashMap::new(), commands: HashMap::new() }
+        Executor { store, cfg, orders: HashMap::new(), commands: HashMap::new(), closed_origins: HashMap::new() }
     }
 
     pub fn config(&self) -> &ExecConfig {
@@ -443,11 +445,26 @@ impl Executor {
         snapshot_ms: TimestampMs,
     ) -> Result<Vec<ExecEvent>, ExecError> {
         let mut events = Vec::new();
-        let unknown: Vec<String> = self.orders.iter().filter(|(_, o)| o.timed_out).map(|(c, _)| c.clone()).collect();
-        for cid in unknown {
+        // Frames arrive in order, so a snapshot that already shows the position while the
+        // result is still missing means the result was lost: every in-flight order is checked.
+        let candidates: Vec<(String, bool)> = self.orders.iter().map(|(c, o)| (c.clone(), o.timed_out)).collect();
+        for (cid, timed_out) in candidates {
             let found_pos = positions.iter().find(|p| p.comment == cid && p.magic == self.cfg.magic);
             let found_ord = pending.iter().find(|p| p.comment == cid && p.magic == self.cfg.magic);
-            if let Some(p) = found_pos {
+            if let Some(ticket) = self.closed_origins.get(&cid).copied() {
+                // The position was opened AND closed before any confirmation reached us.
+                self.orders.remove(&cid);
+                self.store
+                    .update_order(&OrderUpdate {
+                        cid: cid.clone(),
+                        status: OrderStatus::Filled.as_str().into(),
+                        ticket: Some(ticket),
+                        message: Some("executed and already closed: proven by its closing deal".into()),
+                        ..Default::default()
+                    })
+                    .await?;
+                events.push(ExecEvent::ReconciledFilled { cid, ticket });
+            } else if let Some(p) = found_pos {
                 self.orders.remove(&cid);
                 self.store
                     .update_order(&OrderUpdate {
@@ -473,7 +490,7 @@ impl Executor {
                     })
                     .await?;
                 events.push(ExecEvent::Placed { cid, ticket: p.ticket });
-            } else {
+            } else if timed_out {
                 let sent = self.orders.get(&cid).map(|o| o.sent_ms).unwrap_or(0);
                 if snapshot_ms - sent >= self.cfg.reconcile_grace_ms {
                     self.orders.remove(&cid);
@@ -490,6 +507,16 @@ impl Executor {
             }
         }
         Ok(events)
+    }
+
+    /// Record a closing deal. If it closes a position opened by an instruction that is
+    /// still unsettled, the order is proven executed. Returns that order's cid.
+    pub fn note_deal(&mut self, origin: &str, position_ticket: i64) -> Option<String> {
+        if origin.is_empty() || !self.orders.contains_key(origin) {
+            return None;
+        }
+        self.closed_origins.insert(origin.to_string(), position_ticket);
+        Some(origin.to_string())
     }
 
     /// Positions on the account that AEGIS did not open (other magic number).

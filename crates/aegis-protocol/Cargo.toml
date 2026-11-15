@@ -13,3 +13,10 @@ hmac.workspace = true
 sha2.workspace = true
 hex.workspace = true
 rand.workspace = true
+tokio = { workspace = true, optional = true }
+
+[features]
+io = ["dep:tokio"]
+
+[dev-dependencies]
+tokio.workspace = true

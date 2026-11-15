@@ -295,3 +295,33 @@ async fn management_commands_only_reduce_risk() {
 
     assert_eq!(r.exec.foreign_positions(&[pos.clone(), position(43, "manual", 0)]).len(), 1);
 }
+
+#[tokio::test]
+async fn a_position_opened_and_closed_before_any_confirmation_is_still_recognised() {
+    let mut r = Rig::new().await;
+    let auth = r.authorize(OrderKind::Market).await;
+    let cid = cid_of(&r.exec.submit_entry(&mut r.risk, &auth, 0.00001, NOW).await.unwrap());
+    r.exec.mark_sent(&cid).await.unwrap();
+    // The acknowledgement is lost; the position hits its target before the timeout.
+    assert_eq!(r.exec.note_deal("someone-else", 1), None);
+    assert_eq!(r.exec.note_deal("", 1), None);
+    assert_eq!(r.exec.note_deal(&cid, 920), Some(cid.clone()));
+    // The account is flat again, yet the order must NOT be declared "not executed".
+    let ev = r.exec.reconcile(&[], &[], NOW + 60_000).await.unwrap();
+    assert_eq!(ev, vec![ExecEvent::ReconciledFilled { cid: cid.clone(), ticket: 920 }]);
+    assert_eq!(r.status(&cid).await, "filled");
+    assert_eq!(r.exec.in_flight(), 0);
+}
+
+#[tokio::test]
+async fn a_snapshot_showing_the_position_settles_the_order_without_waiting_for_the_timeout() {
+    let mut r = Rig::new().await;
+    let auth = r.authorize(OrderKind::Market).await;
+    let cid = cid_of(&r.exec.submit_entry(&mut r.risk, &auth, 0.00001, NOW).await.unwrap());
+    // Not timed out yet, but an empty snapshot proves nothing...
+    assert!(r.exec.reconcile(&[], &[], NOW + 10_000).await.unwrap().is_empty());
+    assert_eq!(r.exec.in_flight(), 1);
+    // ...whereas a snapshot containing the position does.
+    let ev = r.exec.reconcile(&[position(930, &cid, ExecConfig::default().magic)], &[], NOW + 200).await.unwrap();
+    assert_eq!(ev, vec![ExecEvent::ReconciledFilled { cid, ticket: 930 }]);
+}

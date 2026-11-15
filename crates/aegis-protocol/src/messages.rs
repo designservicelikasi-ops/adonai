@@ -62,6 +62,8 @@ pub enum Body {
     Deal {
         deal: i64, position: i64, symbol: String, side: Side, volume: f64, price: f64,
         profit: f64, swap: f64, commission: f64, time: TimestampMs, comment: String,
+        /// Comment of the order that opened the position (the AEGIS `cid` for AEGIS orders).
+        origin: String,
     },
     BalanceOp { deal: i64, amount: f64, time: TimestampMs },
     /// Outcome of an `order` instruction, as reported by the broker.
@@ -182,9 +184,10 @@ impl Body {
                 non_negative("sl/tp", &[*sl, *tp])
             }
             Body::SnapEnd { .. } => Ok(()),
-            Body::Deal { symbol, volume, price, profit, swap, commission, comment, deal, .. } => {
+            Body::Deal { symbol, volume, price, profit, swap, commission, comment, deal, origin, .. } => {
                 ok_symbol(symbol)?;
                 ok_text("comment", comment, 64)?;
+                ok_text("origin", origin, 64)?;
                 if *deal <= 0 { return Err("deal ticket must be > 0".into()); }
                 positive("volume/price", &[*volume, *price])?;
                 finite("profit/swap/commission", &[*profit, *swap, *commission])
@@ -391,7 +394,7 @@ impl Body {
 
     pub fn to_deal(&self) -> Option<Deal> {
         match self {
-            Body::Deal { deal, position, symbol, side, volume, price, profit, swap, commission, time, comment } => Some(Deal {
+            Body::Deal { deal, position, symbol, side, volume, price, profit, swap, commission, time, comment, origin } => Some(Deal {
                 deal_ticket: *deal,
                 position_ticket: *position,
                 symbol: symbol.clone(),
@@ -403,6 +406,7 @@ impl Body {
                 commission: *commission,
                 ts_ms: *time,
                 comment: comment.clone(),
+                origin: origin.clone(),
             }),
             _ => None,
         }
@@ -421,6 +425,7 @@ impl Body {
             commission: d.commission,
             time: d.ts_ms,
             comment: d.comment.clone(),
+            origin: d.origin.clone(),
         }
     }
 

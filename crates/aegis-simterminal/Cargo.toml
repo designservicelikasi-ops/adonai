@@ -1,0 +1,13 @@
+[package]
+name = "aegis-simterminal"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+aegis-types.workspace = true
+aegis-protocol = { workspace = true, features = ["io"] }
+aegis-market.workspace = true
+aegis-backtest.workspace = true
+tokio.workspace = true
+serde.workspace = true

@@ -621,6 +621,26 @@ impl Store {
         Ok(rows.into_iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
     }
 
+    /// Broker ticket -> strategy that opened it (through its order and decision).
+    pub async fn ticket_strategies(&self) -> DataResult<Vec<(i64, String)>> {
+        let rows = sqlx::query(
+            "SELECT o.ticket, d.strategy_id FROM orders o JOIN decisions d ON d.decision_id = o.decision_id
+             WHERE o.ticket IS NOT NULL",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| (r.get(0), r.get(1))).collect())
+    }
+
+    pub async fn strategy_of_order(&self, cid: &str) -> DataResult<Option<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT d.strategy_id FROM orders o JOIN decisions d ON d.decision_id = o.decision_id WHERE o.cid = ?",
+        )
+        .bind(cid)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     // ------------------------------------------------------------- commands
 
     pub async fn insert_command(&self, c: &CommandRecord) -> DataResult<()> {
@@ -738,8 +758,8 @@ impl Store {
     /// Returns `true` when the deal was new, `false` when it was already recorded.
     pub async fn insert_deal(&self, d: &Deal) -> DataResult<bool> {
         let n = sqlx::query(
-            "INSERT OR IGNORE INTO deals (deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO deals (deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment, origin)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(d.deal_ticket)
         .bind(d.position_ticket)
@@ -752,6 +772,7 @@ impl Store {
         .bind(d.commission)
         .bind(d.ts_ms)
         .bind(&d.comment)
+        .bind(&d.origin)
         .execute(&self.pool)
         .await?
         .rows_affected();
@@ -760,7 +781,7 @@ impl Store {
 
     pub async fn deals_since(&self, since_ms: TimestampMs, limit: i64) -> DataResult<Vec<Deal>> {
         let rows = sqlx::query(
-            "SELECT deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment
+            "SELECT deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment, origin
              FROM deals WHERE ts_ms >= ? ORDER BY ts_ms DESC LIMIT ?",
         )
         .bind(since_ms)
@@ -781,6 +802,7 @@ impl Store {
                     commission: r.get(8),
                     ts_ms: r.get(9),
                     comment: r.get(10),
+                    origin: r.get(11),
                 })
             })
             .collect()

@@ -61,7 +61,7 @@ fn every_message_type_roundtrips() {
         Body::Pos { snap: 1, ticket: 5, symbol: "EURUSD".into(), side: Side::Sell, volume: 0.1, price_open: 1.1, sl: 0.0, tp: 0.0, profit: -1.0, swap: 0.0, commission: -0.3, magic: 7, comment: "c".into(), open_time: NOW },
         Body::Ord { snap: 1, ticket: 6, symbol: "EURUSD".into(), side: Side::Buy, kind: OrderKind::Limit, volume: 0.1, price: 1.09, sl: 1.08, tp: 1.1, magic: 7, comment: "".into(), setup_time: NOW },
         Body::SnapEnd { snap: 1, positions: 1, orders: 1 },
-        Body::Deal { deal: 9, position: 5, symbol: "EURUSD".into(), side: Side::Sell, volume: 0.1, price: 1.1, profit: 3.0, swap: 0.0, commission: -0.3, time: NOW, comment: "tp".into() },
+        Body::Deal { deal: 9, position: 5, symbol: "EURUSD".into(), side: Side::Sell, volume: 0.1, price: 1.1, profit: 3.0, swap: 0.0, commission: -0.3, time: NOW, comment: "tp".into(), origin: "Acid".into() },
         Body::BalanceOp { deal: 10, amount: 100.0, time: NOW },
         Body::Result { cid: "cid-1".into(), ok: true, retcode: 10009, ticket: 5, price: 1.1, volume: 0.1, msg: "done".into() },
         Body::Bar { symbol: "EURUSD".into(), tf: "M15".into(), time: NOW, open: 1.1, high: 1.2, low: 1.0, close: 1.15, volume: 3, spread: 12.0, last: true },
@@ -231,4 +231,54 @@ fn domain_conversions_roundtrip() {
     };
     assert_eq!(Body::from_symbol_spec(&spec).to_symbol_spec().unwrap(), spec);
     assert!(tick().to_symbol_spec().is_none());
+}
+
+fn info() -> HelloInfo {
+    HelloInfo { terminal: TerminalKind::Mt5, login: 5001, server: "Demo".into(), trade_mode: AccountTradeMode::Demo, build: "test".into() }
+}
+
+#[test]
+fn handshake_establishes_a_working_session() {
+    let mut nonces = NonceCache::new(30_000);
+    let (hello, client_nonce) = client_hello(PSK, &info(), NOW).unwrap();
+    let (welcome, mut server, seen) = server_accept(PSK, &hello, &mut nonces, 30_000, NOW + 5).unwrap();
+    assert_eq!(seen, info());
+    let mut client = client_finish(PSK, &welcome, &client_nonce, 30_000, NOW + 10).unwrap();
+    assert_eq!(client.sid, server.sid);
+
+    let line = client.seal(tick(), NOW + 20).unwrap();
+    assert_eq!(server.open(&line, NOW + 21).unwrap().body, tick());
+    let line = server.seal(order(), NOW + 30).unwrap();
+    assert_eq!(client.open(&line, NOW + 31).unwrap().body, order());
+    // The session key is not the pre-shared key: session frames do not verify with it.
+    assert_eq!(decode(&line, PSK), Err(ProtoError::BadMac));
+}
+
+#[test]
+fn handshake_rejects_wrong_key_replay_and_stale_hello() {
+    let mut nonces = NonceCache::new(30_000);
+    // Connector with the wrong secret.
+    let (bad, _) = client_hello(b"wrong-key-wrong-key-wrong-key-12", &info(), NOW).unwrap();
+    assert_eq!(server_accept(PSK, &bad, &mut nonces, 30_000, NOW).err(), Some(ProtoError::BadMac));
+
+    let (hello, client_nonce) = client_hello(PSK, &info(), NOW).unwrap();
+    let (welcome, _, _) = server_accept(PSK, &hello, &mut nonces, 30_000, NOW).unwrap();
+    // The very same hello captured and replayed.
+    assert_eq!(server_accept(PSK, &hello, &mut nonces, 30_000, NOW + 100).err(), Some(ProtoError::NonceReplay));
+    // A hello captured long ago.
+    let (old, _) = client_hello(PSK, &info(), NOW - 120_000).unwrap();
+    assert!(matches!(server_accept(PSK, &old, &mut nonces, 30_000, NOW).err(), Some(ProtoError::Stale(_))));
+    // Anything but a hello cannot open a session.
+    let env = Envelope { v: 1, id: "x".into(), ts: NOW, seq: 0, sid: String::new(), body: tick() };
+    assert!(matches!(server_accept(PSK, &encode(&env, PSK).unwrap(), &mut nonces, 30_000, NOW).err(), Some(ProtoError::Invalid(_))));
+
+    // A welcome forged without the secret is refused by the connector.
+    let forged = encode(&Envelope { v: 1, id: "w".into(), ts: NOW, seq: 0, sid: "sid-x".into(), body: Body::Welcome { nonce: new_nonce() } }, b"attacker-key-attacker-key-123456").unwrap();
+    assert_eq!(client_finish(PSK, &forged, &client_nonce, 30_000, NOW).err(), Some(ProtoError::BadMac));
+    // An old welcome replayed to a new connection yields a key the engine does not share.
+    let (hello2, nonce2) = client_hello(PSK, &info(), NOW + 200).unwrap();
+    let (_, mut server2, _) = server_accept(PSK, &hello2, &mut nonces, 30_000, NOW + 200).unwrap();
+    let mut fooled = client_finish(PSK, &welcome, &nonce2, 30_000, NOW + 200).unwrap();
+    let line = fooled.seal(tick(), NOW + 201).unwrap();
+    assert_eq!(server2.open(&line, NOW + 201).err(), Some(ProtoError::BadMac));
 }

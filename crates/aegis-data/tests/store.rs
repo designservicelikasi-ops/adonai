@@ -225,6 +225,7 @@ async fn positions_sync_and_deals_dedup() {
         commission: -0.7,
         ts_ms: 9_000,
         comment: "tp".into(),
+        origin: "Acid".into(),
     };
     assert!(s.insert_deal(&d).await.unwrap());
     assert!(!s.insert_deal(&d).await.unwrap(), "replayed deal must be ignored");

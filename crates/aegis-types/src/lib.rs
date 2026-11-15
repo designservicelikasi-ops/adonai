@@ -444,6 +444,8 @@ pub struct Deal {
     pub commission: f64,
     pub ts_ms: TimestampMs,
     pub comment: String,
+    /// Comment of the order that opened the position (the AEGIS client id for AEGIS orders).
+    pub origin: String,
 }
 
 impl Deal {

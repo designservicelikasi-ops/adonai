@@ -115,6 +115,7 @@ mod tests {
             commission,
             ts_ms: ts,
             comment: String::new(),
+            origin: String::new(),
         }
     }
 
