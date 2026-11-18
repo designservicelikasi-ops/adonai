@@ -297,6 +297,10 @@ pub struct EngineView {
     /// Closed AEGIS trades analysed at every horizon (gross, net, costs).
     pub performance: crate::performance::PerformanceReport,
     pub news: NewsView,
+    /// Independent Shadow Intelligence report (None when disabled).
+    pub shadow: Option<aegis_shadow::ShadowReport>,
+    /// Copies the shadow could not take (queue full): its view may be incomplete.
+    pub shadow_dropped: u64,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

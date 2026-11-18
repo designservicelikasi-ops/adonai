@@ -688,3 +688,37 @@ async fn high_impact_news_suspends_entries_on_the_exposed_currencies() {
     let e = v.entry_states.iter().find(|e| e.symbol == SIM_SYMBOL).unwrap();
     assert_eq!(e.decision, "WAIT");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shadow_observes_independently_and_promotion_needs_evidence() {
+    let r = rig("shadow", 60, true).await;
+    let h = &r.h;
+    let v = wait_for(h, "shadow sees live bars and decisions", |v| v.shadow.as_ref().is_some_and(|s| s.bars_processed > 0 && s.decisions_seen > 0)).await;
+    let s = v.shadow.as_ref().unwrap();
+    assert!(s.candidates.iter().any(|c| c.id == "donchian_breakout" && c.role == aegis_shadow::Role::Champion && c.live_enabled));
+    assert!(s.candidates.len() > 9, "challengers exist next to the champions");
+    assert_eq!(v.shadow_dropped, 0);
+    // A challenger without backtest/out-of-sample/forward evidence cannot be promoted.
+    let challenger = s.candidates.iter().find(|c| c.role == aegis_shadow::Role::Challenger).unwrap().id.clone();
+    let err = h.command(Command::PromoteChallenger { candidate_id: challenger }).await.unwrap_err();
+    assert!(err.contains("non validé"), "{err}");
+    assert!(h.command(Command::PromoteChallenger { candidate_id: "donchian_breakout".into() }).await.is_err(), "a champion is not promoted");
+
+    // New parameters: validated, persisted, strategy back to research.
+    assert!(h.command(Command::SetStrategyConfig { id: "donchian_breakout".into(), config: json!({ "period": 1 }) }).await.is_err());
+    must(h, Command::SetStrategyConfig { id: "donchian_breakout".into(), config: json!({ "period": 30, "tp_atr": 1.0 }) }).await;
+    let v = h.snapshot();
+    let st = v.strategies.iter().find(|s| s.meta.id == "donchian_breakout").unwrap();
+    assert_eq!(st.stage, "research");
+    assert_eq!(st.config["period"], 30);
+    assert!(st.evidence.is_empty(), "evidence earned with other parameters no longer applies");
+    let Rig { dir, cfg, h, sim } = r;
+    sim.stop().await;
+    h.shutdown().await;
+    let h = start(cfg).await.unwrap();
+    let v = h.snapshot();
+    let st = v.strategies.iter().find(|s| s.meta.id == "donchian_breakout").unwrap();
+    assert_eq!((st.config["period"].as_u64(), st.config["tp_atr"].as_f64()), (Some(30), Some(1.0)), "parameters survive a restart");
+    h.shutdown().await;
+    let _ = std::fs::remove_dir_all(dir);
+}

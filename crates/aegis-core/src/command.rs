@@ -38,6 +38,12 @@ pub enum Command {
     LoadModel { path: PathBuf },
     /// Train a P(TP before SL) model on stored candles (runs in the background).
     TrainProbability { symbol: String, timeframe: Timeframe, origin: DataOrigin },
+    /// Change a strategy's parameters (validated; the strategy returns to research).
+    SetStrategyConfig { id: String, config: serde_json::Value },
+    /// Backtest every shadow candidate on stored candles.
+    EvaluateShadowHistory { symbol: String, timeframe: Timeframe, origin: DataOrigin },
+    /// Promote a challenger that passed backtest, out-of-sample and forward (to DEMO only).
+    PromoteChallenger { candidate_id: String },
     /// Make a stored probability model version active (rollback).
     ActivateProbabilityModel { model_id: String },
     VerifyAudit,
@@ -71,6 +77,9 @@ impl Engine {
                 return;
             }
             Command::ActivateProbabilityModel { model_id } => self.activate_probability_model(&model_id).await,
+            Command::SetStrategyConfig { id, config } => self.cmd_strategy_config(&id, config, "user").await,
+            Command::EvaluateShadowHistory { symbol, timeframe, origin } => self.cmd_shadow_history(&symbol, timeframe, origin).await,
+            Command::PromoteChallenger { candidate_id } => self.cmd_promote_challenger(&candidate_id).await,
             Command::SetMode { mode, confirmation } => self.cmd_set_mode(mode, &confirmation).await,
             Command::Kill { reason } => {
                 let reason = if reason.trim().is_empty() { "arrêt manuel".to_string() } else { reason };
@@ -95,18 +104,27 @@ impl Engine {
                     _ => "l'arrêt d'urgence n'est pas actif".to_string(),
                 }),
             },
-            Command::SetRiskConfig(cfg) => match self.risk.set_config(cfg.clone()) {
-                Ok(()) => match self.store.save_risk_config("user", &serde_json::to_value(&cfg).unwrap_or_default()).await {
-                    Ok(v) => {
-                        self.audit("user", "risk_config_changed", serde_json::to_value(&cfg).unwrap_or_default()).await;
-                        self.log("warn", "risk", format!("configuration de risque mise à jour (version {v})"));
-                        Ok(format!("configuration de risque enregistrée (version {v})"))
-                    }
-                    Err(e) => Err(format!("configuration appliquée mais non enregistrée: {e}")),
-                },
-                Err(e) => Err(e.to_string()),
-            },
-            Command::SetStrategyEnabled { id, enabled } => self.cmd_strategy_enabled(&id, enabled).await,
+            Command::SetRiskConfig(cfg) => {
+                let r = match self.risk.set_config(cfg.clone()) {
+                    Ok(()) => match self.store.save_risk_config("user", &serde_json::to_value(&cfg).unwrap_or_default()).await {
+                        Ok(v) => {
+                            self.audit("user", "risk_config_changed", serde_json::to_value(&cfg).unwrap_or_default()).await;
+                            self.log("warn", "risk", format!("configuration de risque mise à jour (version {v})"));
+                            Ok(format!("configuration de risque enregistrée (version {v})"))
+                        }
+                        Err(e) => Err(format!("configuration appliquée mais non enregistrée: {e}")),
+                    },
+                    Err(e) => Err(e.to_string()),
+                };
+                // The shadow uses the same commission assumption as the risk engine.
+                self.shadow_config();
+                r
+            }
+            Command::SetStrategyEnabled { id, enabled } => {
+                let r = self.cmd_strategy_enabled(&id, enabled).await;
+                self.shadow_champions();
+                r
+            }
             Command::SetStrategyStage { id, stage } => self.cmd_strategy_stage(&id, stage).await,
             Command::GenerateSynthetic { symbol, timeframe, bars, seed } => self.cmd_generate(&symbol, timeframe, bars, seed).await,
             Command::ImportCsv { path, symbol, timeframe, utc_offset_hours } => self.cmd_import(&path, &symbol, timeframe, utc_offset_hours).await,

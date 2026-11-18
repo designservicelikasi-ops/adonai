@@ -50,6 +50,7 @@ impl Engine {
             return;
         }
         self.refresh_entry_state(&bar.symbol, bar.timeframe);
+        self.shadow_bar(&bar.symbol, bar.timeframe);
         for idx in 0..self.strategies.len() {
             let (id, runs) = {
                 let s = &self.strategies[idx];
@@ -317,6 +318,7 @@ impl Engine {
         self.log("info", "strategy", format!("signal {strategy_id} {} {symbol} {tf}: {} → {summary}", intent.side, intent.reason));
         let why = format!("{strategy_id}: {} → {summary}", intent.reason);
         self.note_entry_decision(symbol, tf, intent.side, &dv.outcome, why, &decision_id);
+        self.shadow_decision(&dv);
         self.decisions.push_back(dv);
         while self.decisions.len() > 300 {
             self.decisions.pop_front();

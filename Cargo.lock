@@ -27,6 +27,7 @@ dependencies = [
  "aegis-probability",
  "aegis-protocol",
  "aegis-risk",
+ "aegis-shadow",
  "aegis-simterminal",
  "aegis-strategy",
  "aegis-types",
@@ -148,6 +149,18 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "aegis-shadow"
+version = "0.1.0"
+dependencies = [
+ "aegis-backtest",
+ "aegis-strategy",
+ "aegis-types",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

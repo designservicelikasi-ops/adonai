@@ -113,6 +113,8 @@ pub struct EngineConfig {
     pub probability: aegis_probability::ProbabilityConfig,
     /// Economic calendar and news-based trading recommendation.
     pub news: aegis_news::NewsConfig,
+    /// Shadow Intelligence (independent paper trading, champion/challenger).
+    pub shadow: aegis_shadow::ShadowConfig,
     pub safety: SafetySection,
     pub retention: RetentionSection,
 }

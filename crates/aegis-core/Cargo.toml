@@ -15,6 +15,7 @@ aegis-backtest.workspace = true
 aegis-learning.workspace = true
 aegis-probability.workspace = true
 aegis-news.workspace = true
+aegis-shadow.workspace = true
 aegis-execution.workspace = true
 tokio.workspace = true
 serde.workspace = true

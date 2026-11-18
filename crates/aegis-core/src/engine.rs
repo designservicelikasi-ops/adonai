@@ -99,6 +99,9 @@ pub(crate) struct Engine {
     pub news_last_attempt_ms: TimestampMs,
     pub news_last_error: Option<String>,
     pub news_in_flight: bool,
+    pub shadow: Option<aegis_shadow::ShadowHandle>,
+    pub shadow_dropped: std::sync::atomic::AtomicU64,
+    pub shadow_saved_ms: TimestampMs,
     pub snap: (i64, Vec<Position>, Vec<PendingOrder>),
     pub accounting: Option<Accounting>,
     pub decisions: VecDeque<DecisionView>,
@@ -222,19 +225,35 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
     let mut executor = Executor::new(store.clone(), cfg.execution.clone());
     let recovered = executor.recover(now).await?;
 
+    // Strategies: the stored configuration (set from the application or by a promotion)
+    // wins over the defaults; a stored configuration that no longer validates falls back
+    // to the defaults and the strategy returns to the research stage.
+    let stored = store.load_strategies().await?;
     let mut strategies = Vec::new();
     for s in default_strategies() {
-        let m = s.meta();
-        store
-            .upsert_strategy(&StrategyRow { strategy_id: m.id.clone(), name: m.name.clone(), stage: "research".into(), enabled: true, config: s.config() })
-            .await?;
-        strategies.push(StrategySlot { strategy: s, stage: StrategyStage::Research, enabled: true, signals: 0 });
-    }
-    for row in store.load_strategies().await? {
-        if let Some(slot) = strategies.iter_mut().find(|s| s.strategy.meta().id == row.strategy_id) {
-            slot.stage = StrategyStage::parse(&row.stage).unwrap_or(StrategyStage::Research);
-            slot.enabled = row.enabled;
-        }
+        let id = s.meta().id.clone();
+        let row = stored.iter().find(|r| r.strategy_id == id);
+        let slot = match row {
+            Some(r) => {
+                let stage = StrategyStage::parse(&r.stage).unwrap_or(StrategyStage::Research);
+                match aegis_strategy::build(&id, &r.config) {
+                    Ok(custom) if !r.config.is_null() && r.config != serde_json::json!({}) => StrategySlot { strategy: custom, stage, enabled: r.enabled, signals: 0 },
+                    Ok(_) => StrategySlot { strategy: s, stage, enabled: r.enabled, signals: 0 },
+                    Err(_) => {
+                        store.set_strategy_stage(&id, "research").await?;
+                        StrategySlot { strategy: s, stage: StrategyStage::Research, enabled: r.enabled, signals: 0 }
+                    }
+                }
+            }
+            None => {
+                let m = s.meta();
+                store
+                    .upsert_strategy(&StrategyRow { strategy_id: id.clone(), name: m.name.clone(), stage: "research".into(), enabled: true, config: s.config() })
+                    .await?;
+                StrategySlot { strategy: s, stage: StrategyStage::Research, enabled: true, signals: 0 }
+            }
+        };
+        strategies.push(slot);
     }
 
     let mut market = MarketEngine::new(cfg.market.clone());
@@ -296,6 +315,9 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         news_last_attempt_ms: 0,
         news_last_error: None,
         news_in_flight: false,
+        shadow: None,
+        shadow_dropped: std::sync::atomic::AtomicU64::new(0),
+        shadow_saved_ms: now,
         snap: (0, Vec::new(), Vec::new()),
         accounting,
         decisions: VecDeque::new(),
@@ -331,6 +353,18 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         engine.deals.push_back(d);
     }
     engine.load_probability_models().await;
+    if engine.cfg.shadow.enabled {
+        let handle = aegis_shadow::spawn(engine.cfg.shadow.clone(), now);
+        if let Some(r) = engine.store.kv_get::<aegis_shadow::ShadowReport>("shadow_report").await? {
+            let _ = handle.tx.try_send(aegis_shadow::ShadowInput::Restore(Box::new(r)));
+        }
+        engine.shadow = Some(handle);
+        engine.shadow_config();
+        engine.shadow_champions();
+        for spec in engine.specs.values() {
+            engine.shadow_spec(spec);
+        }
+    }
     if let Some((events, ok)) = engine.store.kv_get::<(Vec<aegis_news::NewsEvent>, Option<TimestampMs>)>("news").await? {
         engine.news_events = events;
         engine.news_last_ok_ms = ok;
@@ -385,6 +419,8 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         journal: Vec::new(),
         performance: Default::default(),
         news: Default::default(),
+        shadow: None,
+        shadow_dropped: 0,
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -598,6 +634,7 @@ impl Engine {
                 if first {
                     self.log("info", "market", format!("instrument {} enregistré", spec.symbol));
                 }
+                self.shadow_spec(&spec);
                 self.specs.insert(spec.symbol.clone(), spec);
             }
             Body::Tick { symbol, time, bid, ask } => {
@@ -802,6 +839,7 @@ impl Engine {
         }
         self.persist_accounting().await;
         self.journal_on_deal(&d).await;
+        self.shadow_trade(d.position_ticket).await;
         // A deal that closes a position whose opening was never confirmed proves the order ran.
         if let Some(cid) = self.executor.note_deal(&d.origin, d.position_ticket) {
             self.bind_owner(&cid, d.position_ticket).await;
@@ -918,6 +956,7 @@ impl Engine {
             Err(e) => self.db_failed(&e.to_string()),
         }
         self.maybe_fetch_news(now);
+        self.persist_shadow(now).await;
         // The probe runs in the background so a stuck database never stalls the engine.
         if now - self.last_db_ping_ms >= 3_000 && !self.ping_in_flight {
             self.last_db_ping_ms = now;
@@ -1147,6 +1186,8 @@ impl Engine {
             journal: self.cache.journal.clone(),
             performance: self.cache.performance.clone(),
             news: self.news_view(now),
+            shadow: self.shadow.as_ref().map(|s| (**s.report.borrow()).clone()),
+            shadow_dropped: self.shadow_dropped.load(std::sync::atomic::Ordering::Relaxed),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),

@@ -8,6 +8,7 @@ mod decide;
 mod engine;
 mod intel;
 pub mod performance;
+mod shadowlink;
 pub mod logging;
 mod positions;
 pub mod view;

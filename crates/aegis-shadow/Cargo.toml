@@ -1,0 +1,15 @@
+[package]
+name = "aegis-shadow"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Deliberately NO dependency on aegis-execution, aegis-protocol or aegis-core:
+# the shadow engine cannot build, sign or send an order.
+[dependencies]
+aegis-types.workspace = true
+aegis-strategy.workspace = true
+aegis-backtest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

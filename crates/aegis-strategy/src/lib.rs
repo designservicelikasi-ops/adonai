@@ -7,7 +7,7 @@ mod lifecycle;
 mod strategies;
 mod strategies2;
 
-pub use lifecycle::{can_promote, wilson_lower_bound, Evidence, StrategyStage};
+pub use lifecycle::{can_promote, wilson_lower_bound, Evidence, StrategyStage, MIN_FORWARD_TRADES, MIN_OOS_TRADES};
 pub use strategies::{DonchianBreakout, EmaTrend, RsiReversion};
 pub use strategies2::{
     BollingerReversion, Pullback, RsiMomentum, SrRejection, TrendFollowing, VolatilityExpansion,
