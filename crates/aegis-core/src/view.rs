@@ -282,6 +282,8 @@ pub struct EngineView {
     /// Calibration of the probabilities used for real trades (journal, 90 days).
     pub probability_live: Option<aegis_probability::metrics::CalibrationReport>,
     pub journal: Vec<aegis_data::JournalEntry>,
+    /// Closed AEGIS trades analysed at every horizon (gross, net, costs).
+    pub performance: crate::performance::PerformanceReport,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

@@ -222,6 +222,8 @@ async fn full_cycle_signal_risk_order_fill_close_reconcile() {
     assert!((j.net - deal.net()).abs() < 1e-9 && (j.gross - deal.profit).abs() < 1e-9);
     assert!(j.est_spread_cost > 0.0 && j.mfe_price > 0.0);
     assert_eq!(v.probability_live.as_ref().map(|r| r.n), Some(1), "live calibration counts the real trade");
+    assert_eq!(v.performance.today.trades, 1);
+    assert!((v.performance.all_time.net - deal.net()).abs() < 1e-9 && v.performance.by_strategy[0].key == "donchian_breakout");
     // Entry Intelligence shows the decision of the bar.
     assert!(v.entry_states.iter().any(|e| e.symbol == SIM_SYMBOL && e.timeframe == Timeframe::M5));
 

@@ -7,6 +7,7 @@ pub mod config;
 mod decide;
 mod engine;
 mod intel;
+pub mod performance;
 pub mod logging;
 mod positions;
 pub mod view;

@@ -64,6 +64,7 @@ pub(crate) struct Cache {
     pub dirty: bool,
     pub journal: Vec<aegis_data::JournalEntry>,
     pub probability_live: Option<aegis_probability::metrics::CalibrationReport>,
+    pub performance: crate::performance::PerformanceReport,
 }
 
 pub(crate) struct Engine {
@@ -368,6 +369,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         probability_models: Vec::new(),
         probability_live: None,
         journal: Vec::new(),
+        performance: Default::default(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -946,7 +948,9 @@ impl Engine {
         if let Ok(v) = self.store.journal_recent(300).await {
             self.cache.journal = v;
         }
-        if let Ok(closed) = self.store.journal_closed_since(now - 90 * 86_400_000, 100_000).await {
+        if let Ok(closed) = self.store.journal_closed_since(now - 400 * 86_400_000, 1_000_000).await {
+            self.cache.performance = crate::performance::compute(&closed, now);
+            let closed: Vec<_> = closed.into_iter().filter(|e| e.closed_ms.unwrap_or(0) >= now - 90 * 86_400_000).collect();
             let preds: Vec<(f64, f64)> = closed.iter().filter_map(|e| e.probability.map(|p| (p, if e.net > 0.0 { 1.0 } else { 0.0 }))).collect();
             self.cache.probability_live = (!preds.is_empty()).then(|| aegis_probability::metrics::reliability(&preds, &vec![0; preds.len()]));
         }
@@ -1125,6 +1129,7 @@ impl Engine {
             probability_models: self.probability_views(),
             probability_live: self.cache.probability_live.clone(),
             journal: self.cache.journal.clone(),
+            performance: self.cache.performance.clone(),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),
