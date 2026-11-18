@@ -6,13 +6,13 @@ use aegis_types::{Candle, Regime, Side, Timeframe};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const INTRADAY: [Timeframe; 4] = [Timeframe::M5, Timeframe::M15, Timeframe::M30, Timeframe::H1];
+pub(crate) const INTRADAY: [Timeframe; 5] = [Timeframe::M1, Timeframe::M5, Timeframe::M15, Timeframe::M30, Timeframe::H1];
 
-fn closes(bars: &[Candle]) -> Vec<f64> {
+pub(crate) fn closes(bars: &[Candle]) -> Vec<f64> {
     bars.iter().map(|c| c.close).collect()
 }
 
-fn check_atr(period: usize, sl: f64, tp: f64) -> Result<(), String> {
+pub(crate) fn check_atr(period: usize, sl: f64, tp: f64) -> Result<(), String> {
     if !(2..=200).contains(&period) {
         return Err("atr_period must be within 2..200".into());
     }

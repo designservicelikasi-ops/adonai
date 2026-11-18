@@ -144,7 +144,7 @@ fn decisions_depend_only_on_past_bars() {
 #[test]
 fn registry_metadata_and_configuration_validation() {
     let all = default_strategies();
-    assert_eq!(all.len(), 3);
+    assert_eq!(all.len(), 9);
     let mut ids: Vec<&str> = all.iter().map(|s| s.meta().id.as_str()).collect();
     ids.dedup();
     assert_eq!(ids, STRATEGY_IDS.to_vec(), "ids are unique and stable");
@@ -164,4 +164,113 @@ fn registry_metadata_and_configuration_validation() {
     assert!(build("donchian_breakout", &json!({"period": 1})).is_err());
     let custom = build("ema_trend", &json!({"fast": 10, "slow": 30})).unwrap();
     assert_eq!(custom.config()["fast"], 10);
+}
+
+// ------------------------------------------------------------ v0.2 strategies
+
+fn candle(i: usize, o: f64, h: f64, l: f64, c: f64) -> Candle {
+    Candle { open_ts: i as i64 * 900_000, open: o, high: h, low: l, close: c, tick_volume: 10, spread_points: 10.0 }
+}
+
+fn by_id(id: &str) -> Box<dyn Strategy> {
+    build(id, &Value::Null).unwrap()
+}
+
+/// Gentle oscillation around 1.1000 (a range).
+fn range(n: usize) -> Vec<f64> {
+    (0..n).map(|i| 1.1000 + 0.0006 * ((i as f64) * 0.7).sin()).collect()
+}
+
+#[test]
+fn rsi_momentum_buys_when_momentum_turns_up_above_the_trend() {
+    // A range, then an up-trend that breathes: three bars up, two bars down.
+    let mut v = range(120);
+    let mut p = *v.last().unwrap();
+    for i in 0..80 {
+        p += if i % 5 >= 3 { -0.0013 } else { 0.0010 };
+        v.push(p);
+    }
+    let e = entries(by_id("rsi_momentum").as_ref(), &bars(&v));
+    assert!(!e.is_empty(), "the rally starts with an RSI cross above 55");
+    assert!(e.iter().all(|(_, s)| s.side == Side::Buy), "{e:?}");
+    assert!(e[0].0 >= 120, "no signal in the range: {e:?}");
+    assert!(e[0].1.reason.contains("RSI"));
+}
+
+#[test]
+fn trend_following_enters_when_the_emas_become_aligned() {
+    let e = entries(by_id("trend_following").as_ref(), &bars(&down_then_up()));
+    assert!(e.iter().any(|(_, s)| s.side == Side::Buy), "{e:?}");
+    assert!(e.iter().all(|(_, s)| s.side == Side::Buy), "no sell just because the slow EMA became available: {e:?}");
+}
+
+#[test]
+fn pullback_buys_the_resumption_after_a_dip_to_the_fast_ema() {
+    let mut v: Vec<f64> = (0..90).map(|i| 1.1000 + i as f64 * 0.0005).collect();
+    let top = *v.last().unwrap();
+    v.extend([top - 0.0020, top - 0.0040, top - 0.0062, top - 0.0035]);
+    let b = bars(&v);
+    let e = entries(by_id("pullback").as_ref(), &b);
+    assert!(e.iter().any(|(i, s)| *i >= 90 && s.side == Side::Buy), "{e:?}");
+    assert!(e.iter().all(|(_, s)| s.side == Side::Buy));
+}
+
+#[test]
+fn bollinger_reversion_buys_the_close_back_inside_the_band() {
+    let mut v = range(60);
+    v.push(1.0975); // far below the lower band
+    v.push(1.0990); // back inside, still under the mean
+    let e = entries(by_id("bollinger_reversion").as_ref(), &bars(&v));
+    let (i, s) = e.last().expect("a reversion signal");
+    assert_eq!((*i, s.side), (61, Side::Buy));
+    assert!(s.tp_distance < s.sl_distance, "micro-target by default");
+}
+
+#[test]
+fn sr_rejection_buys_a_wick_rejecting_a_confirmed_support() {
+    let mut b: Vec<Candle> = (0..110).map(|i| {
+        let mid = 1.1000 + 0.0004 * ((i as f64) * 0.9).sin();
+        candle(i, mid, mid + 0.0003, mid - 0.0003, mid + 0.0001)
+    }).collect();
+    // A clear swing low at 1.0980 (index 90), confirmed by the bars around it.
+    b[90] = candle(90, 1.0995, 1.0997, 1.0980, 1.0994);
+    // The last bar: long lower wick back to 1.0981, close well above.
+    let n = b.len();
+    b.push(candle(n, 1.0998, 1.1000, 1.0981, 1.0999));
+    let s = by_id("sr_rejection");
+    match s.evaluate(window(&b), None) {
+        StrategyAction::Enter(sig) => {
+            assert_eq!(sig.side, Side::Buy);
+            assert!(sig.reason.contains("support"), "{}", sig.reason);
+        }
+        other => panic!("expected a rejection entry, got {other:?}"),
+    }
+    // The same bar without a wick is not a rejection.
+    let last = b.len() - 1;
+    b[last] = candle(last, 1.0998, 1.1000, 1.0996, 1.0999);
+    assert_eq!(s.evaluate(window(&b), None), StrategyAction::None);
+}
+
+#[test]
+fn volatility_expansion_follows_a_wide_bar_after_a_squeeze() {
+    let mut b: Vec<Candle> = (0..80).map(|i| candle(i, 1.1000, 1.1010, 1.0990, 1.1000)).collect();
+    b.extend((80..110).map(|i| candle(i, 1.1000, 1.1002, 1.0998, 1.1000))); // compression
+    b.push(candle(110, 1.1000, 1.1030, 1.0999, 1.1029)); // wide bar closing at its high
+    let s = by_id("volatility_expansion");
+    match s.evaluate(window(&b), None) {
+        StrategyAction::Enter(sig) => assert_eq!(sig.side, Side::Buy),
+        other => panic!("expected an expansion entry, got {other:?}"),
+    }
+    let held = OpenView { side: Side::Buy, entry_price: 1.1029, bars_held: 20 };
+    assert!(matches!(s.evaluate(window(&b), Some(&held)), StrategyAction::Exit { .. }), "time exit");
+}
+
+#[test]
+fn new_strategies_reject_invalid_configurations() {
+    assert!(build("rsi_momentum", &json!({"level": 45.0})).is_err());
+    assert!(build("trend_following", &json!({"fast": 60, "mid": 50})).is_err());
+    assert!(build("pullback", &json!({"slow": 5})).is_err());
+    assert!(build("bollinger_reversion", &json!({"k": 0.1})).is_err());
+    assert!(build("sr_rejection", &json!({"min_wick_ratio": 1.5})).is_err());
+    assert!(build("volatility_expansion", &json!({"baseline_period": 10})).is_err());
 }

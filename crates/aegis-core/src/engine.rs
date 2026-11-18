@@ -79,6 +79,11 @@ pub(crate) struct Engine {
     pub specs: HashMap<String, SymbolSpec>,
     pub positions: Vec<Position>,
     pub pending: Vec<PendingOrder>,
+    /// Ticket -> stop-loss at opening (initial risk R), persisted.
+    pub initial_sl: HashMap<i64, f64>,
+    /// Ticket -> time a modification/close was sent and is still unanswered.
+    pub modifying: HashMap<i64, TimestampMs>,
+    pub position_decisions: Vec<PositionDecisionView>,
     pub snap: (i64, Vec<Position>, Vec<PendingOrder>),
     pub accounting: Option<Accounting>,
     pub decisions: VecDeque<DecisionView>,
@@ -235,6 +240,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
 
     let owners: HashMap<i64, String> = store.ticket_strategies().await?.into_iter().collect();
     let accounting = store.kv_get::<Accounting>("accounting").await?;
+    let initial_sl: HashMap<i64, f64> = store.kv_get("position_initial_sl").await?.unwrap_or_default();
 
     let listener = TcpListener::bind(&cfg.bridge.listen).await.map_err(|e| anyhow::anyhow!("cannot listen on {}: {e}", cfg.bridge.listen))?;
     let bridge_addr = listener.local_addr()?;
@@ -263,6 +269,9 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         specs,
         positions: Vec::new(),
         pending: Vec::new(),
+        initial_sl,
+        modifying: HashMap::new(),
+        position_decisions: Vec::new(),
         snap: (0, Vec::new(), Vec::new()),
         accounting,
         decisions: VecDeque::new(),
@@ -333,6 +342,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         charts: Vec::new(),
         signal_timeframes: cfg.engine.signal_timeframes.clone(),
         positions: Vec::new(),
+        position_decisions: Vec::new(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -717,11 +727,19 @@ impl Engine {
                 }
             }
         }
+        for p in positions.iter().filter(|p| p.magic == magic) {
+            self.note_initial_stop(p).await;
+        }
         if !closed.is_empty() || !opened.is_empty() {
             self.cache.dirty = true;
         }
         self.positions = positions;
         self.pending = pending;
+        if !closed.is_empty() {
+            self.forget_closed_positions().await;
+            let open: Vec<i64> = self.positions.iter().map(|p| p.ticket).collect();
+            self.position_decisions.retain(|d| open.contains(&d.ticket));
+        }
         if self.kill_plan_pending && self.risk.kill_state().active {
             self.apply_kill_plan().await;
         }
@@ -814,9 +832,11 @@ impl Engine {
                 self.log("warn", "execution", format!("ordre {cid}: non exécuté (confirmé par la réconciliation)"));
             }
             ExecEvent::CommandDone { cid, action, ticket } => {
+                self.modifying.remove(ticket);
                 self.log("info", "execution", format!("commande {action} {cid} exécutée (ticket {ticket})"));
             }
             ExecEvent::CommandFailed { cid, action, ticket, message } => {
+                self.modifying.remove(ticket);
                 self.log("warn", "execution", format!("commande {action} {cid} refusée (ticket {ticket}): {message}"));
             }
             ExecEvent::UnexpectedResult { cid } => {
@@ -1053,6 +1073,7 @@ impl Engine {
             signal_timeframes: self.cfg.engine.signal_timeframes.clone(),
             foreign_tickets: self.positions.iter().filter(|p| p.magic != magic).map(|p| p.ticket).collect(),
             positions: self.positions.clone(),
+            position_decisions: self.position_decisions.clone(),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),

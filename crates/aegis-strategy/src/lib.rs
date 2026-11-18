@@ -5,9 +5,13 @@
 
 mod lifecycle;
 mod strategies;
+mod strategies2;
 
 pub use lifecycle::{can_promote, wilson_lower_bound, Evidence, StrategyStage};
 pub use strategies::{DonchianBreakout, EmaTrend, RsiReversion};
+pub use strategies2::{
+    BollingerReversion, Pullback, RsiMomentum, SrRejection, TrendFollowing, VolatilityExpansion,
+};
 
 use aegis_types::{Candle, Regime, Side, Timeframe};
 use serde::{Deserialize, Serialize};
@@ -88,7 +92,17 @@ pub enum StrategyError {
     InvalidConfig { id: String, problem: String },
 }
 
-pub const STRATEGY_IDS: [&str; 3] = ["ema_trend", "rsi_reversion", "donchian_breakout"];
+pub const STRATEGY_IDS: [&str; 9] = [
+    "ema_trend",
+    "rsi_momentum",
+    "trend_following",
+    "donchian_breakout",
+    "pullback",
+    "rsi_reversion",
+    "bollinger_reversion",
+    "sr_rejection",
+    "volatility_expansion",
+];
 
 /// Build a strategy from its id and an optional JSON configuration (`null` = defaults).
 pub fn build(id: &str, config: &Value) -> Result<Box<dyn Strategy>, StrategyError> {
@@ -104,6 +118,12 @@ pub fn build(id: &str, config: &Value) -> Result<Box<dyn Strategy>, StrategyErro
         "ema_trend" => Ok(Box::new(EmaTrend::new(parse(id, config)?).map_err(invalid)?)),
         "rsi_reversion" => Ok(Box::new(RsiReversion::new(parse(id, config)?).map_err(invalid)?)),
         "donchian_breakout" => Ok(Box::new(DonchianBreakout::new(parse(id, config)?).map_err(invalid)?)),
+        "rsi_momentum" => Ok(Box::new(RsiMomentum::new(parse(id, config)?).map_err(invalid)?)),
+        "trend_following" => Ok(Box::new(TrendFollowing::new(parse(id, config)?).map_err(invalid)?)),
+        "pullback" => Ok(Box::new(Pullback::new(parse(id, config)?).map_err(invalid)?)),
+        "bollinger_reversion" => Ok(Box::new(BollingerReversion::new(parse(id, config)?).map_err(invalid)?)),
+        "sr_rejection" => Ok(Box::new(SrRejection::new(parse(id, config)?).map_err(invalid)?)),
+        "volatility_expansion" => Ok(Box::new(VolatilityExpansion::new(parse(id, config)?).map_err(invalid)?)),
         other => Err(StrategyError::Unknown(other.to_string())),
     }
 }

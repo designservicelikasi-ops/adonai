@@ -106,6 +106,20 @@ impl DecisionView {
     }
 }
 
+/// Latest Position Intelligence decision for one open position.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PositionDecisionView {
+    pub ts_ms: TimestampMs,
+    pub ticket: i64,
+    pub symbol: String,
+    pub action: aegis_risk::PositionAction,
+    /// The instruction left the engine (execution modes only).
+    pub executed: bool,
+    pub note: String,
+    pub net_realizable: f64,
+    pub initial_sl: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceView {
     pub strategy_id: String,
@@ -210,6 +224,7 @@ pub struct EngineView {
     pub charts: Vec<(String, Timeframe, Vec<(TimestampMs, f64)>)>,
     pub signal_timeframes: Vec<Timeframe>,
     pub positions: Vec<Position>,
+    pub position_decisions: Vec<PositionDecisionView>,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

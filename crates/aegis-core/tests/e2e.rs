@@ -181,8 +181,10 @@ async fn full_cycle_signal_risk_order_fill_close_reconcile() {
     let v = wait_for(h, "position visible", |v| v.positions.iter().any(|p| p.ticket == ticket) || v.deals.iter().any(|x| x.position_ticket == ticket)).await;
     if let Some(p) = v.positions.iter().find(|p| p.ticket == ticket) {
         assert_eq!(p.comment, cid);
-        assert_eq!(p.sl, d.sl);
-        assert_eq!(p.tp, d.tp);
+        // Position Intelligence may already have secured/trailed the stop:
+        // it can only have moved in the protective direction (BUY: upward).
+        assert!(p.sl >= d.sl - 1e-9, "stop widened: {} < {}", p.sl, d.sl);
+        assert!(p.tp <= d.tp + 1e-9 && p.tp > p.price_open);
         assert!(v.foreign_tickets.is_empty());
     }
 

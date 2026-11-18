@@ -7,6 +7,7 @@ pub mod config;
 mod decide;
 mod engine;
 pub mod logging;
+mod positions;
 pub mod view;
 
 pub use command::{Command, Reply, LIVE_CONFIRMATION_PHRASE};

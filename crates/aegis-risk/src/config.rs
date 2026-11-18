@@ -1,4 +1,5 @@
 use crate::goal::DailyGoal;
+use crate::position::PositionPolicy;
 use serde::{Deserialize, Serialize};
 
 /// What the emergency stop does to positions that are already open.
@@ -51,6 +52,8 @@ pub struct RiskConfig {
     pub cost_check_min_trades: u32,
     /// Trading windows in UTC ("HH:MM"). Empty = no time restriction.
     pub trading_windows: Vec<TradingWindow>,
+    /// Position Intelligence: securing, trailing, target decay, exits.
+    pub position: PositionPolicy,
     pub max_tick_age_ms: i64,
     pub max_account_age_ms: i64,
     pub authorization_ttl_ms: i64,
@@ -89,6 +92,7 @@ impl Default for RiskConfig {
             max_cost_to_gross_ratio: 0.6,
             cost_check_min_trades: 20,
             trading_windows: Vec::new(),
+            position: PositionPolicy::default(),
             max_tick_age_ms: 5_000,
             max_account_age_ms: 15_000,
             authorization_ttl_ms: 3_000,
@@ -148,6 +152,7 @@ impl RiskConfig {
             }
         }
         self.daily_goal.validate()?;
+        self.position.validate()?;
         range("commission_per_lot_round_turn", self.commission_per_lot_round_turn, 0.0, 1e6, "must be >= 0")?;
         range("expected_slippage_points", self.expected_slippage_points, 0.0, 10_000.0, "must be >= 0")?;
         range("conversion_fee_pct", self.conversion_fee_pct, 0.0, 10.0, "must be within 0..10 %")?;

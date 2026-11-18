@@ -108,6 +108,47 @@ pub fn realized_volatility(closes: &[f64], period: usize) -> Option<f64> {
     Some(var.sqrt())
 }
 
+/// Population standard deviation of the last `period` values.
+pub fn stddev(values: &[f64], period: usize) -> Option<f64> {
+    if period < 2 || values.len() < period {
+        return None;
+    }
+    let w = &values[values.len() - period..];
+    let mean = w.iter().sum::<f64>() / period as f64;
+    Some((w.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / period as f64).sqrt())
+}
+
+/// Bollinger bands of the last `period` closes: (middle, upper, lower).
+pub fn bollinger(closes: &[f64], period: usize, k: f64) -> Option<(f64, f64, f64)> {
+    let mid = sma(closes, period)?;
+    let sd = stddev(closes, period)?;
+    Some((mid, mid + k * sd, mid - k * sd))
+}
+
+/// Swing levels: a high (low) that is the extreme of `strength` bars on each side.
+/// Only pivots fully confirmed inside the slice are returned (no look-ahead),
+/// most recent first: (resistances, supports).
+pub fn swing_levels(candles: &[Candle], strength: usize, max_levels: usize) -> (Vec<f64>, Vec<f64>) {
+    let (mut res, mut sup) = (Vec::new(), Vec::new());
+    if strength == 0 || candles.len() < 2 * strength + 1 {
+        return (res, sup);
+    }
+    for i in (strength..candles.len() - strength).rev() {
+        let w = &candles[i - strength..=i + strength];
+        let c = &candles[i];
+        if res.len() < max_levels && w.iter().all(|x| x.high <= c.high) {
+            res.push(c.high);
+        }
+        if sup.len() < max_levels && w.iter().all(|x| x.low >= c.low) {
+            sup.push(c.low);
+        }
+        if res.len() >= max_levels && sup.len() >= max_levels {
+            break;
+        }
+    }
+    (res, sup)
+}
+
 pub fn median(values: &[f64]) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -161,6 +202,24 @@ mod tests {
         let bars = vec![c(10.0, 11.0, 9.0, 10.0); 5];
         assert!((atr(&bars, 3).unwrap() - 2.0).abs() < 1e-12);
         assert_eq!(atr(&bars[..3], 3), None);
+    }
+
+    #[test]
+    fn bollinger_and_swings() {
+        let v = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let (m, u, l) = bollinger(&v, 5, 2.0).unwrap();
+        assert!((m - 3.0).abs() < 1e-12);
+        assert!((u - (3.0 + 2.0 * 2f64.sqrt())).abs() < 1e-12 && (l - (3.0 - 2.0 * 2f64.sqrt())).abs() < 1e-12);
+        assert_eq!(bollinger(&v, 6, 2.0), None);
+        // A peak at index 2 and a trough at index 5, each with 2 lower/higher bars on both sides.
+        let hl = [(1.0, 0.5), (2.0, 1.5), (3.0, 2.5), (2.0, 1.5), (1.5, 1.0), (1.2, 0.2), (1.6, 0.9), (1.8, 1.1)];
+        let bars: Vec<Candle> = hl.iter().map(|(h, l)| c((h + l) / 2.0, *h, *l, (h + l) / 2.0)).collect();
+        let (res, sup) = swing_levels(&bars, 2, 3);
+        assert_eq!(res, vec![3.0]);
+        assert_eq!(sup, vec![0.2]);
+        // The last `strength` bars can never confirm a pivot.
+        let (res, _) = swing_levels(&bars[..4], 2, 3);
+        assert!(res.is_empty());
     }
 
     #[test]

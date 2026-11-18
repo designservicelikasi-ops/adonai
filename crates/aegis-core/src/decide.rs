@@ -81,6 +81,7 @@ impl Engine {
                 StrategyAction::None => {}
             }
         }
+        self.manage_positions(&bar.symbol, bar.timeframe).await;
     }
 
     async fn handle_entry(&mut self, idx: usize, symbol: &str, tf: Timeframe, bar_ts: TimestampMs, intent: SignalIntent) {
