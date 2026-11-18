@@ -358,8 +358,10 @@ pub(crate) mod tests {
     /// Loading it here proves the two implementations agree.
     #[test]
     fn python_trained_model_loads_with_matching_inference_and_is_gated() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/demo-synthetic-model.json");
-        let m = ModelArtifact::load(&path).expect("the demo model must load");
+        // Embedded at compile time: no runtime file access (see TEST_REPORT.md, macOS note).
+        let text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../models/demo-synthetic-model.json"));
+        let m: ModelArtifact = serde_json::from_str(text).expect("the demo model must parse");
+        m.check_consistency().expect("the demo model must be consistent");
         assert_eq!(m.kind, "logistic_regression");
         assert!(m.parity.len() >= 5);
         assert!(m.parity_error() < 1e-12, "Rust and Python disagree by {}", m.parity_error());

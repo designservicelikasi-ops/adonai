@@ -29,7 +29,8 @@ fn self_test_reference_values() {
     );
     let key = derive_session_key(PSK, "client-nonce-0001", "server-nonce-0001");
     assert_eq!(key.len(), 32);
-    let mq5 = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mt5/AegisSelfTest.mq5")).unwrap();
+    // Embedded at compile time: no runtime file access (see TEST_REPORT.md, macOS note).
+    let mq5 = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../mt5/AegisSelfTest.mq5"));
     assert!(mq5.contains(&hex::encode(&key)), "AegisSelfTest.mq5 must contain the engine's session key {}", hex::encode(&key));
 }
 
