@@ -152,6 +152,24 @@ impl Engine {
             (None, None) => (None, format!("{probability_source}; {scenario_src}")),
         };
 
+        // ---- economic news: suspended = no entry; caution = a higher probability is required.
+        let news = self.news_assessment(symbol, now);
+        {
+            let rc = self.risk.config();
+            let min_p = if intent.side == Side::Buy { rc.buy_min_probability } else { rc.sell_min_probability };
+            let margin = self.cfg.news.caution_probability_margin;
+            let (ok, detail) = match news.recommendation {
+                aegis_news::Recommendation::Allowed => (true, news.reasons.join(" ; ")),
+                aegis_news::Recommendation::Suspended => (false, format!("{}: {}", news.recommendation.label(), news.reasons.join(" ; "))),
+                aegis_news::Recommendation::Caution => {
+                    let needed = (min_p + margin).min(0.99);
+                    let ok = win_probability.is_some_and(|p| p >= needed);
+                    (ok, format!("{}: {} — probabilité exigée {:.1} %", news.recommendation.label(), news.reasons.join(" ; "), needed * 100.0))
+                }
+            };
+            checks.push(check("actualites", ok, detail));
+        }
+
         // ---- levels from the real quote
         let (entry, sl, tp) = match (&spec, &last) {
             (Some(s), Some((t, _))) => {

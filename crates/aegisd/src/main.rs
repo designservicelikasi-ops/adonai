@@ -76,6 +76,7 @@ impl Args {
 /// Start the engine on a private port, run one command, print its outcome, stop.
 async fn one_shot(mut cfg: EngineConfig, command: Command) -> anyhow::Result<()> {
     cfg.bridge.listen = "127.0.0.1:0".into();
+    cfg.news.enabled = false; // a one-shot tool has no use for the calendar
     let engine = start(cfg).await?;
     let result = engine.command(command).await;
     let detail = engine.snapshot().last_backtest.clone();

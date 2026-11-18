@@ -20,6 +20,7 @@ aegis-execution = { path = "crates/aegis-execution" }
 aegis-simterminal = { path = "crates/aegis-simterminal" }
 aegis-core = { path = "crates/aegis-core" }
 aegis-probability = { path = "crates/aegis-probability" }
+aegis-news = { path = "crates/aegis-news" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }

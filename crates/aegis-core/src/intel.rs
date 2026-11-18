@@ -277,3 +277,76 @@ pub(crate) fn seed_journal(
         ..Default::default()
     }
 }
+
+// ------------------------------------------------------------------ news
+
+impl Engine {
+    pub(crate) fn news_feed_ok(&self, now: TimestampMs) -> bool {
+        let max_age = 3 * self.cfg.news.refresh_minutes as i64 * 60_000;
+        self.news_last_ok_ms.is_some_and(|t| now - t <= max_age)
+    }
+
+    pub(crate) fn maybe_fetch_news(&mut self, now: TimestampMs) {
+        let cfg = &self.cfg.news;
+        if !cfg.enabled || self.news_in_flight || now - self.news_last_attempt_ms < cfg.refresh_minutes as i64 * 60_000 {
+            return;
+        }
+        self.news_in_flight = true;
+        self.news_last_attempt_ms = now;
+        let (sources, tx) = (cfg.sources.clone(), self.internal_tx.clone());
+        tokio::task::spawn_blocking(move || {
+            let results = sources.iter().map(|s| aegis_news::fetch(s, now_ms())).collect();
+            let _ = tx.blocking_send(Internal::NewsFetched(results));
+        });
+    }
+
+    pub(crate) async fn on_news(&mut self, results: Vec<Result<Vec<aegis_news::NewsEvent>, String>>) {
+        self.news_in_flight = false;
+        let now = now_ms();
+        let mut errors = Vec::new();
+        let mut any_ok = false;
+        for r in results {
+            match r {
+                Ok(events) => {
+                    any_ok = true;
+                    aegis_news::merge(&mut self.news_events, events, now);
+                }
+                Err(e) => errors.push(e),
+            }
+        }
+        if any_ok {
+            self.news_last_ok_ms = Some(now);
+        }
+        self.news_last_error = (!errors.is_empty()).then(|| errors.join(" ; "));
+        if let Some(e) = &self.news_last_error {
+            self.log("warn", "news", format!("calendrier économique: {e}"));
+        }
+        let _ = self.store.kv_set("news", &(&self.news_events, self.news_last_ok_ms)).await;
+        self.cache.dirty = true;
+    }
+
+    pub(crate) fn news_assessment(&self, symbol: &str, now: TimestampMs) -> aegis_news::NewsAssessment {
+        let currencies = self.specs.get(symbol).map(aegis_risk::currencies_of).unwrap_or_default();
+        aegis_news::assess(&self.news_events, &currencies, now, &self.cfg.news, self.news_feed_ok(now))
+    }
+
+    pub(crate) fn news_view(&self, now: TimestampMs) -> crate::view::NewsView {
+        let mut symbols: Vec<&String> = self.specs.keys().collect();
+        symbols.sort();
+        crate::view::NewsView {
+            enabled: self.cfg.news.enabled,
+            last_ok_ms: self.news_last_ok_ms,
+            last_error: self.news_last_error.clone(),
+            feed_ok: self.news_feed_ok(now),
+            upcoming: self
+                .news_events
+                .iter()
+                .filter(|e| e.impact >= aegis_news::Impact::Medium && e.impact != aegis_news::Impact::Unknown)
+                .filter(|e| e.ts_ms >= now - 2 * 3_600_000 && e.ts_ms <= now + 48 * 3_600_000)
+                .take(60)
+                .cloned()
+                .collect(),
+            by_symbol: symbols.into_iter().map(|s| (s.clone(), self.news_assessment(s, now))).collect(),
+        }
+    }
+}

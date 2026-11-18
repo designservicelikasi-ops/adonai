@@ -48,6 +48,7 @@ pub(crate) enum Internal {
     /// Result of the background database probe.
     DbPing(Result<(), String>),
     BacktestDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<BacktestDetail>, String> },
+    NewsFetched(Vec<Result<Vec<aegis_news::NewsEvent>, String>>),
     ProbabilityDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<aegis_probability::ProbabilityModel>, String> },
 }
 
@@ -404,6 +405,7 @@ impl Engine {
                     Err(e) => self.db_failed(&e),
                 }
             }
+            Internal::NewsFetched(results) => self.on_news(results).await,
             Internal::ProbabilityDone { reply, outcome } => {
                 let out = self.on_probability_trained(outcome).await;
                 if let Err(e) = &out {

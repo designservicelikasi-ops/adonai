@@ -106,6 +106,18 @@ impl DecisionView {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct NewsView {
+    pub enabled: bool,
+    pub last_ok_ms: Option<TimestampMs>,
+    pub last_error: Option<String>,
+    /// The calendar was refreshed recently enough to be trusted.
+    pub feed_ok: bool,
+    /// Medium/high impact events from 2 hours ago to 48 hours ahead.
+    pub upcoming: Vec<aegis_news::NewsEvent>,
+    pub by_symbol: Vec<(String, aegis_news::NewsAssessment)>,
+}
+
 /// Entry Intelligence for one instrument and signal timeframe.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntryState {
@@ -284,6 +296,7 @@ pub struct EngineView {
     pub journal: Vec<aegis_data::JournalEntry>,
     /// Closed AEGIS trades analysed at every horizon (gross, net, costs).
     pub performance: crate::performance::PerformanceReport,
+    pub news: NewsView,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

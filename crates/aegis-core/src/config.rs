@@ -111,6 +111,8 @@ pub struct EngineConfig {
     pub learning: LearningSection,
     /// Probability Engine (P(TP before SL)) training and display settings.
     pub probability: aegis_probability::ProbabilityConfig,
+    /// Economic calendar and news-based trading recommendation.
+    pub news: aegis_news::NewsConfig,
     pub safety: SafetySection,
     pub retention: RetentionSection,
 }
@@ -142,6 +144,7 @@ impl EngineConfig {
         let bad = |m: String| Err(ConfigLoadError::Invalid(m));
         self.risk.validate().map_err(|e| ConfigLoadError::Invalid(e.to_string()))?;
         self.probability.validate().map_err(|e| ConfigLoadError::Invalid(format!("probability: {e}")))?;
+        self.news.validate().map_err(ConfigLoadError::Invalid)?;
         if self.engine.signal_timeframes.is_empty() {
             return bad("engine.signal_timeframes must not be empty".into());
         }

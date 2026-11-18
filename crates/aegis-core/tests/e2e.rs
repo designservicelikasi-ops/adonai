@@ -29,6 +29,8 @@ fn config(dir: &PathBuf) -> EngineConfig {
     cfg.execution.reconcile_grace_ms = 300;
     // The fixtures' out-of-sample evidence gives Wilson bounds around 0.5-0.6:
     // the probability thresholds are lowered to the minimum the configuration allows.
+    // No network in tests: the news module is exercised by its own tests and `news_*` below.
+    cfg.news.enabled = false;
     cfg.risk.buy_min_probability = 0.5;
     cfg.risk.sell_min_probability = 0.5;
     cfg
@@ -658,4 +660,31 @@ async fn probability_models_are_trained_versioned_restricted_and_rolled_back() {
     assert_eq!(store.datasets().await.unwrap().len(), 1, "same candles, same dataset version");
     assert_eq!(store.probability_models(None).await.unwrap().len(), 2);
     store.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn high_impact_news_suspends_entries_on_the_exposed_currencies() {
+    // A local calendar: US high-impact event in 10 minutes (the simulator trades EUR/USD).
+    let cal_dir = temp_dir("calendar");
+    let when = chrono::DateTime::from_timestamp_millis(now_ms() + 10 * 60_000).unwrap().to_rfc3339();
+    let cal = cal_dir.join("calendar.json");
+    std::fs::write(&cal, format!(r#"[{{"title":"CPI m/m","country":"USD","date":"{when}","impact":"High","forecast":"0.3%","previous":"0.2%"}}]"#)).unwrap();
+    let url = format!("file://{}", cal.display());
+    let r = rig_with("news", 60, true, move |c| {
+        c.news.enabled = true;
+        c.news.sources = vec![aegis_news::NewsSource { name: "local".into(), url }];
+    })
+    .await;
+    let h = &r.h;
+    let v = wait_for(h, "calendar loaded", |v| v.news.feed_ok && !v.news.upcoming.is_empty()).await;
+    let (_, a) = v.news.by_symbol.iter().find(|(s, _)| s == SIM_SYMBOL).expect("assessment for the instrument");
+    assert_eq!(a.recommendation, aegis_news::Recommendation::Suspended, "{:?}", a.reasons);
+    assert_eq!(v.news.upcoming[0].actual, None, "no published value invented");
+    let v = wait_for(h, "breakout decision", |v| breakout_decision(v).is_some()).await;
+    let d = breakout_decision(&v).unwrap();
+    assert_eq!(d.outcome, "rejected");
+    assert!(d.failures().iter().any(|f| f.starts_with("actualites") && f.contains("CPI")), "{:?}", d.failures());
+    assert!(v.orders.is_empty(), "no order around a high-impact event");
+    let e = v.entry_states.iter().find(|e| e.symbol == SIM_SYMBOL).unwrap();
+    assert_eq!(e.decision, "WAIT");
 }

@@ -94,6 +94,11 @@ pub(crate) struct Engine {
     pub journal_seeds: HashMap<String, aegis_data::JournalEntry>,
     /// Ticket -> (side, entry, max favourable, max adverse) in price.
     pub excursions: HashMap<i64, (Side, f64, f64, f64)>,
+    pub news_events: Vec<aegis_news::NewsEvent>,
+    pub news_last_ok_ms: Option<TimestampMs>,
+    pub news_last_attempt_ms: TimestampMs,
+    pub news_last_error: Option<String>,
+    pub news_in_flight: bool,
     pub snap: (i64, Vec<Position>, Vec<PendingOrder>),
     pub accounting: Option<Accounting>,
     pub decisions: VecDeque<DecisionView>,
@@ -286,6 +291,11 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         entry_states: HashMap::new(),
         journal_seeds: HashMap::new(),
         excursions: HashMap::new(),
+        news_events: Vec::new(),
+        news_last_ok_ms: None,
+        news_last_attempt_ms: 0,
+        news_last_error: None,
+        news_in_flight: false,
         snap: (0, Vec::new(), Vec::new()),
         accounting,
         decisions: VecDeque::new(),
@@ -321,6 +331,10 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         engine.deals.push_back(d);
     }
     engine.load_probability_models().await;
+    if let Some((events, ok)) = engine.store.kv_get::<(Vec<aegis_news::NewsEvent>, Option<TimestampMs>)>("news").await? {
+        engine.news_events = events;
+        engine.news_last_ok_ms = ok;
+    }
     for e in engine.store.journal_recent(500).await? {
         if e.closed_ms.is_none() {
             if let Some(side) = e.side {
@@ -370,6 +384,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         probability_live: None,
         journal: Vec::new(),
         performance: Default::default(),
+        news: Default::default(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -902,6 +917,7 @@ impl Engine {
             }
             Err(e) => self.db_failed(&e.to_string()),
         }
+        self.maybe_fetch_news(now);
         // The probe runs in the background so a stuck database never stalls the engine.
         if now - self.last_db_ping_ms >= 3_000 && !self.ping_in_flight {
             self.last_db_ping_ms = now;
@@ -1130,6 +1146,7 @@ impl Engine {
             probability_live: self.cache.probability_live.clone(),
             journal: self.cache.journal.clone(),
             performance: self.cache.performance.clone(),
+            news: self.news_view(now),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),
