@@ -1,5 +1,5 @@
 //! Capacity test: 2 000 round trips (entry + exit) in one trading day through the
-//! real software chain — risk engine, single-use signed authorization, orders and
+//! real software chain — risk engine, decision persisted first, single-use signed authorization, orders and
 //! commands persisted in SQLite (WAL, synchronous=FULL: one fsync per write),
 //! HMAC-SHA256 frames sealed and verified on both sides, broker (SIMULATOR) fill,
 //! confirmation back into the executor, daily accounting.
@@ -33,6 +33,10 @@ async fn two_thousand_round_trips_in_one_day() {
     let dir = std::env::temp_dir().join(format!("aegis-capacity-{}", new_id("t")));
     std::fs::create_dir_all(&dir).unwrap();
     let store = Store::open(&dir.join("aegis.db")).await.unwrap();
+    store
+        .upsert_strategy(&aegis_data::StrategyRow { strategy_id: "capacity".into(), name: "capacity".into(), stage: "demo".into(), enabled: true, config: serde_json::json!({}) })
+        .await
+        .unwrap();
     let mut exec = Executor::new(store.clone(), ExecConfig::default());
     let cfg = RiskConfig {
         max_trades_per_day: 5_000,
@@ -41,6 +45,9 @@ async fn two_thousand_round_trips_in_one_day() {
         buy_min_probability: 0.6,
         sell_min_probability: 0.6,
         max_cost_to_gross_ratio: 0.0,
+        // Each round trip is closed at once and pays spread + commission: with 2 000 of them the
+        // default 2 % daily loss limit would (correctly) stop the day after ~130 trades.
+        max_daily_loss_pct: 20.0,
         min_net_expected_profit: 0.01,
         daily_goal: aegis_risk::DailyGoal { enabled: false, ..Default::default() },
         ..Default::default()
@@ -88,7 +95,7 @@ async fn two_thousand_round_trips_in_one_day() {
             win_probability: Some(0.72),
             probability_source: "capacity test".into(),
             claimed_risk_amount: None,
-            requested_volume: Some(0.10),
+            requested_volume: Some(0.01),
         };
         let positions = broker.positions().to_vec();
         let ctx = RiskContext {
@@ -108,6 +115,22 @@ async fn two_thousand_round_trips_in_one_day() {
         let a = risk.evaluate(&p, &ctx);
         decide_us.push(t0.elapsed().as_secs_f64() * 1e6);
         assert!(a.approved, "trade {i}: {}", a.rejection_summary());
+
+        // The decision is recorded BEFORE anything is sent (as the engine does).
+        store
+            .insert_decision(&aegis_data::DecisionRecord {
+                decision_id: p.decision_id.clone(),
+                ts_ms: now,
+                symbol: SIM_SYMBOL.into(),
+                strategy_id: "capacity".into(),
+                side,
+                mode: "DemoAuto".into(),
+                signal: serde_json::json!({ "capacity": i }),
+                outcome: "approved".into(),
+                verdict: Some(serde_json::json!({ "risk": a })),
+            })
+            .await
+            .unwrap();
 
         // 2-6. authorization consumed, order persisted, frame sealed, verified, executed, confirmed
         let body = exec.submit_entry(&mut risk, a.authorization.as_ref().unwrap(), spec.point, now).await.unwrap();
