@@ -228,6 +228,8 @@ pub struct EngineView {
     pub daily_net_pct: Option<f64>,
     /// Why new entries are currently blocked for the day, if they are.
     pub daily_halt: Option<String>,
+    /// Daily Profit Goal Manager status.
+    pub goal: Option<aegis_risk::GoalStatus>,
     pub model: Option<ModelView>,
     pub model_error: Option<String>,
     pub backtests: Vec<BacktestRunRow>,

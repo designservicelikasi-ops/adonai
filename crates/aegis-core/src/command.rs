@@ -262,7 +262,7 @@ impl Engine {
             swap_long: -6.5,
             swap_short: 1.2,
             trade_mode: SymbolTradeMode::Full,
-            currency_profit: "USD".into(),
+            currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level_points: 0.0,
         });
         spec.symbol = symbol.to_string();
         let end = tf.bucket(now_ms());

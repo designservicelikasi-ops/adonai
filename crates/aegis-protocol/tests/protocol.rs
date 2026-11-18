@@ -55,13 +55,13 @@ fn every_message_type_roundtrips() {
         Body::Heartbeat {},
         Body::Bye { reason: "x".into() },
         Body::Error { code: "c".into(), msg: "m".into() },
-        Body::Spec { symbol: "EURUSD".into(), digits: 5, point: 0.00001, contract_size: 100000.0, tick_size: 0.00001, tick_value: 1.0, volume_min: 0.01, volume_max: 100.0, volume_step: 0.01, stops_level: 0.0, swap_long: -1.0, swap_short: 0.5, trade_mode: SymbolTradeMode::Full, currency_profit: "USD".into() },
+        Body::Spec { symbol: "EURUSD".into(), digits: 5, point: 0.00001, contract_size: 100000.0, tick_size: 0.00001, tick_value: 1.0, volume_min: 0.01, volume_max: 100.0, volume_step: 0.01, stops_level: 0.0, swap_long: -1.0, swap_short: 0.5, trade_mode: SymbolTradeMode::Full, currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level: 0.0 },
         tick(),
         Body::Account { login: 1, server: "S".into(), currency: "USD".into(), balance: 1.0, equity: 1.0, margin: 0.0, margin_free: 1.0, leverage: 100, trade_mode: AccountTradeMode::Demo, trade_allowed: true },
         Body::Pos { snap: 1, ticket: 5, symbol: "EURUSD".into(), side: Side::Sell, volume: 0.1, price_open: 1.1, sl: 0.0, tp: 0.0, profit: -1.0, swap: 0.0, commission: -0.3, magic: 7, comment: "c".into(), open_time: NOW },
         Body::Ord { snap: 1, ticket: 6, symbol: "EURUSD".into(), side: Side::Buy, kind: OrderKind::Limit, volume: 0.1, price: 1.09, sl: 1.08, tp: 1.1, magic: 7, comment: "".into(), setup_time: NOW },
         Body::SnapEnd { snap: 1, positions: 1, orders: 1 },
-        Body::Deal { deal: 9, position: 5, symbol: "EURUSD".into(), side: Side::Sell, volume: 0.1, price: 1.1, profit: 3.0, swap: 0.0, commission: -0.3, time: NOW, comment: "tp".into(), origin: "Acid".into() },
+        Body::Deal { deal: 9, position: 5, symbol: "EURUSD".into(), side: Side::Sell, volume: 0.1, price: 1.1, profit: 3.0, swap: 0.0, commission: -0.3, time: NOW, comment: "tp".into(), origin: "Acid".into(), fee: 0.0 },
         Body::BalanceOp { deal: 10, amount: 100.0, time: NOW },
         Body::Result { cid: "cid-1".into(), ok: true, retcode: 10009, ticket: 5, price: 1.1, volume: 0.1, msg: "done".into() },
         Body::Bar { symbol: "EURUSD".into(), tf: "M15".into(), time: NOW, open: 1.1, high: 1.2, low: 1.0, close: 1.15, volume: 3, spread: 12.0, last: true },
@@ -227,7 +227,7 @@ fn domain_conversions_roundtrip() {
     let spec = SymbolSpec {
         symbol: "EURUSD".into(), digits: 5, point: 0.00001, contract_size: 100000.0, tick_size: 0.00001,
         tick_value: 1.0, volume_min: 0.01, volume_max: 100.0, volume_step: 0.01, stops_level_points: 5.0,
-        swap_long: -1.0, swap_short: 0.5, trade_mode: SymbolTradeMode::Full, currency_profit: "USD".into(),
+        swap_long: -1.0, swap_short: 0.5, trade_mode: SymbolTradeMode::Full, currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level_points: 0.0,
     };
     assert_eq!(Body::from_symbol_spec(&spec).to_symbol_spec().unwrap(), spec);
     assert!(tick().to_symbol_spec().is_none());

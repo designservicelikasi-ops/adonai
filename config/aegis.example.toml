@@ -36,7 +36,16 @@ max_notional_leverage = 5.0      # exposition notionnelle totale / équité
 max_spread_points = 25.0
 max_slippage_points = 10.0       # au-delà, le connecteur refuse d'exécuter
 min_net_expected_profit = 0.5    # espérance nette minimale par transaction (devise du compte)
-daily_profit_target_pct = 1.0    # objectif du jour : atteint = plus d'entrées. 0 = désactivé
+buy_min_probability = 0.75       # P(TP avant SL) minimale pour un ACHAT (0.50..0.99)
+sell_min_probability = 0.75      # idem pour une VENTE ; jamais abaissée automatiquement
+max_trades_per_day = 500         # entrées par jour (jusqu'à 10 000 ; 2 000 est une valeur valide)
+max_consecutive_losses = 5       # pertes d'affilée avant une pause. 0 = désactivé
+loss_cooldown_minutes = 30       # durée de la pause
+max_orders_per_minute = 60       # débit maximal d'entrées (limites du broker)
+max_currency_exposure = 5.0      # exposition notionnelle dans une même devise / équité
+max_cost_to_gross_ratio = 0.6    # entrées bloquées si les coûts du jour dépassent 60 % des gains bruts
+cost_check_min_trades = 20       # … vérifié à partir de 20 transactions clôturées
+trading_windows = []             # plages UTC, ex. [{ start = "07:00", end = "20:00" }] ; vide = toujours
 max_tick_age_ms = 5000
 max_account_age_ms = 15000
 authorization_ttl_ms = 3000      # durée de vie d'une autorisation d'ordre
@@ -46,6 +55,13 @@ conversion_fee_pct = 0.0
 expected_holding_nights = 0.0
 kill_cancel_pending = true       # arrêt d'urgence : annuler les ordres en attente d'AEGIS
 kill_position_policy = "keep"    # "keep" = conserver les positions avec leurs SL/TP ; "close" = les clôturer
+
+[risk.daily_goal]                # Daily Profit Goal Manager — un objectif, jamais une promesse
+enabled = true
+amount = 15.0                    # en devise du compte
+basis = "net"                    # "net" (après commission, swap, frais) ou "gross" (brut)
+policy = "stop_entries"          # "stop_entries" | "protect_gains" | "track_only"
+protect_fraction = 0.8           # protect_gains : part du meilleur résultat à conserver
 
 [market]
 timeframes = ["M1", "M5", "M15", "H1"]

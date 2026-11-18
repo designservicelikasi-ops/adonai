@@ -5,6 +5,7 @@ use crate::auth::{AuthError, Authorization};
 use crate::config::{ConfigError, KillPositionPolicy, RiskConfig};
 use crate::costs::{evaluate_micro_profit, MicroProfitEvaluation};
 use crate::day::{drawdown_pct, DayStats};
+use crate::goal::goal_status;
 use aegis_types::{
     new_id, AccountSnapshot, AccountTradeMode, Mode, OrderKind, PendingOrder, Position, Side,
     SymbolSpec, SymbolTradeMode, TerminalKind, Tick, TimestampMs,
@@ -13,6 +14,27 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 pub const KILL_RESET_PHRASE: &str = "RESET AEGIS";
+
+/// Currencies an instrument exposes the account to: base (reported, or the first
+/// three letters of a six-letter FX name) and profit currency.
+pub fn currencies_of(spec: &SymbolSpec) -> Vec<String> {
+    let mut out = Vec::new();
+    let base = if !spec.currency_base.is_empty() {
+        spec.currency_base.clone()
+    } else {
+        let letters: String = spec.symbol.chars().take(6).collect();
+        if letters.len() == 6 && letters.chars().all(|c| c.is_ascii_alphabetic()) {
+            letters[..3].to_ascii_uppercase()
+        } else {
+            spec.symbol.clone()
+        }
+    };
+    out.push(base);
+    if !spec.currency_profit.is_empty() && !out.contains(&spec.currency_profit) {
+        out.push(spec.currency_profit.clone());
+    }
+    out
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct KillSwitchState {
@@ -106,6 +128,8 @@ pub struct RiskEngine {
     seen_decisions: HashSet<String>,
     consumed: HashSet<String>,
     kill: KillSwitchState,
+    /// Times at which entry authorizations were consumed (rolling minute).
+    sent: std::collections::VecDeque<TimestampMs>,
 }
 
 struct Checks(Vec<Check>);
@@ -126,6 +150,7 @@ impl RiskEngine {
             seen_decisions: HashSet::new(),
             consumed: HashSet::new(),
             kill: KillSwitchState::default(),
+            sent: std::collections::VecDeque::new(),
         })
     }
 
@@ -194,6 +219,10 @@ impl RiskEngine {
         }
         if !self.consumed.insert(auth.auth_id.clone()) {
             return Err(AuthError::AlreadyUsed);
+        }
+        self.sent.push_back(now_ms);
+        while self.sent.front().is_some_and(|t| now_ms - *t >= 60_000) {
+            self.sent.pop_front();
         }
         Ok(())
     }
@@ -314,17 +343,41 @@ impl RiskEngine {
         if let (Some(a), Some(day)) = (account, ctx.day) {
             let pnl_pct = day.net_pnl_pct(a.equity);
             c.add("perte_journaliere", pnl_pct > -cfg.max_daily_loss_pct, format!("résultat net du jour {pnl_pct:.2} % (limite -{:.2} %)", cfg.max_daily_loss_pct));
-            let target_ok = cfg.daily_profit_target_pct <= 0.0 || pnl_pct < cfg.daily_profit_target_pct;
-            c.add("objectif_journalier", target_ok, if target_ok {
-                format!("objectif {:.2} % non atteint", cfg.daily_profit_target_pct)
+            let goal = goal_status(&cfg.daily_goal, day);
+            c.add("objectif_journalier", !goal.blocks_entries, goal.detail.clone());
+            c.add("transactions_max", day.entries_sent < cfg.max_trades_per_day, format!("{} entrées aujourd'hui (max {})", day.entries_sent, cfg.max_trades_per_day));
+            if cfg.max_consecutive_losses > 0 && day.consecutive_losses >= cfg.max_consecutive_losses {
+                let until = day.last_loss_ms + cfg.loss_cooldown_minutes as i64 * 60_000;
+                let cooling = ctx.now_ms < until;
+                c.add("pertes_consecutives", !cooling, if cooling {
+                    format!("{} pertes consécutives: pause jusqu'à {} UTC", day.consecutive_losses, aegis_types::format_ts(until))
+                } else {
+                    format!("{} pertes consécutives, pause de {} min écoulée", day.consecutive_losses, cfg.loss_cooldown_minutes)
+                });
             } else {
-                format!("objectif {:.2} % atteint ({pnl_pct:.2} %): nouvelles entrées arrêtées", cfg.daily_profit_target_pct)
-            });
+                c.add("pertes_consecutives", true, format!("{} perte(s) consécutive(s) (max {})", day.consecutive_losses, cfg.max_consecutive_losses));
+            }
+            if cfg.max_cost_to_gross_ratio > 0.0 && day.closed_trades >= cfg.cost_check_min_trades {
+                let costs = day.total_costs();
+                let ok = day.gross_profit > 0.0 && costs <= cfg.max_cost_to_gross_ratio * day.gross_profit;
+                c.add("couts_vs_gains", ok, format!(
+                    "coûts du jour {costs:.2} pour {:.2} de gains bruts (max {:.0} %)",
+                    day.gross_profit, cfg.max_cost_to_gross_ratio * 100.0
+                ));
+            }
             let dd = drawdown_pct(ctx.peak_equity, a.equity);
             c.add("drawdown", dd < cfg.max_drawdown_pct, format!("drawdown {dd:.2} % (max {:.2} %)", cfg.max_drawdown_pct));
         } else if account.is_some() {
             c.add("comptabilite_journaliere", false, "statistiques du jour indisponibles");
         }
+
+        if !cfg.trading_windows.is_empty() {
+            let minute = ((ctx.now_ms.rem_euclid(86_400_000)) / 60_000) as u32;
+            let inside = cfg.trading_windows.iter().any(|w| w.contains(minute));
+            c.add("horaires", inside, format!("{:02}:{:02} UTC {} des plages autorisées", minute / 60, minute % 60, if inside { "dans" } else { "hors" }));
+        }
+        let recent = self.sent.iter().filter(|t| ctx.now_ms - **t < 60_000).count();
+        c.add("debit_ordres", recent < cfg.max_orders_per_minute as usize, format!("{recent} entrées sur la dernière minute (max {})", cfg.max_orders_per_minute));
 
         let open_count = ctx.positions.len() + ctx.pending.len();
         c.add("positions_max", open_count < cfg.max_open_positions, format!("{open_count} ouvertes/en attente (max {})", cfg.max_open_positions));
@@ -380,6 +433,16 @@ impl RiskEngine {
                         spec, &cfg, p.side, volume, entry, p.sl, p.tp, tick.spread(),
                         p.win_probability, &p.probability_source,
                     );
+                    let min_p = match p.side {
+                        Side::Buy => cfg.buy_min_probability,
+                        Side::Sell => cfg.sell_min_probability,
+                    };
+                    match micro.win_probability {
+                        Some(prob) => c.add("seuil_probabilite", prob >= min_p, format!(
+                            "P(TP avant SL) {:.1} % (minimum {} {:.1} %)", prob * 100.0, p.side.as_str(), min_p * 100.0
+                        )),
+                        None => c.add("seuil_probabilite", false, "aucune probabilité calibrée disponible"),
+                    };
                     match micro.expected_net {
                         Some(net) => {
                             c.add("esperance_nette", net >= cfg.min_net_expected_profit && net > 0.0, format!(
@@ -472,6 +535,26 @@ impl RiskEngine {
             return;
         }
         let lev = if a.equity > 0.0 { total / a.equity } else { f64::INFINITY };
+        // Gross exposure per currency (no netting between positions: conservative).
+        let mut per_ccy: HashMap<String, f64> = HashMap::new();
+        let legs = std::iter::once((spec, entry, volume)).chain(
+            ctx.positions
+                .iter()
+                .map(|x| (x.symbol.as_str(), x.price_open, x.volume))
+                .chain(ctx.pending.iter().map(|x| (x.symbol.as_str(), x.price, x.volume)))
+                .filter_map(|(sym, price, vol)| ctx.specs.get(sym).map(|s| (s, price, vol))),
+        );
+        for (s, price, vol) in legs {
+            let n = notional(s, price, vol);
+            for ccy in currencies_of(s) {
+                *per_ccy.entry(ccy).or_default() += n;
+            }
+        }
+        let worst = per_ccy.iter().max_by(|a, b| a.1.total_cmp(b.1));
+        if let Some((ccy, n)) = worst {
+            let x = if a.equity > 0.0 { n / a.equity } else { f64::INFINITY };
+            c.add("exposition_devise", x <= self.config.max_currency_exposure, format!("{ccy}: {x:.2}x l'équité (max {:.2}x)", self.config.max_currency_exposure));
+        }
         c.add("exposition", lev <= self.config.max_notional_leverage, format!("exposition notionnelle {lev:.2}x l'équité (max {:.2}x)", self.config.max_notional_leverage));
         if a.leverage > 0 {
             let margin_needed = notional(spec, entry, volume) / a.leverage as f64;

@@ -27,6 +27,10 @@ fn config(dir: &PathBuf) -> EngineConfig {
     cfg.bridge.shared_key_env = "AEGIS_E2E_KEY_NOT_SET".into();
     cfg.execution.result_timeout_ms = 1_000;
     cfg.execution.reconcile_grace_ms = 300;
+    // The fixtures' out-of-sample evidence gives Wilson bounds around 0.5-0.6:
+    // the probability thresholds are lowered to the minimum the configuration allows.
+    cfg.risk.buy_min_probability = 0.5;
+    cfg.risk.sell_min_probability = 0.5;
     cfg
 }
 
@@ -143,8 +147,8 @@ fn breakout_decision(v: &EngineView) -> Option<&aegis_core::view::DecisionView> 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_cycle_signal_risk_order_fill_close_reconcile() {
-    // A low daily target: after the first winning trade, new entries must stop.
-    let r = rig_with("full", 60, true, |c| c.risk.daily_profit_target_pct = 0.3).await;
+    // A low daily goal (net): after the first winning trade, new entries must stop.
+    let r = rig_with("full", 60, true, |c| c.risk.daily_goal.amount = 0.01).await;
     let h = &r.h;
 
     // 1-4: engine started, simulator connected (clearly identified), market data flowing.
@@ -192,8 +196,13 @@ async fn full_cycle_signal_risk_order_fill_close_reconcile() {
     assert!((day.realized_net() - deal.net()).abs() < 1e-6);
     let v = wait_for(h, "equity reflects the result", |v| v.daily_net.is_some_and(|n| (n - deal.net()).abs() < 0.05)).await;
     assert!(v.daily_net.unwrap() > 0.0);
-    // The daily target is reached: the rally continues but nothing more is opened.
+    // The daily goal is reached: the rally continues but nothing more is opened.
     assert!(v.daily_halt.as_ref().is_some_and(|h| h.contains("objectif")), "{:?}", v.daily_halt);
+    let goal = v.goal.as_ref().unwrap();
+    assert!(goal.reached && goal.blocks_entries && goal.remaining == 0.0);
+    assert!((goal.achieved - deal.net()).abs() < 1e-6, "a NET goal counts the deal after commission");
+    assert_eq!(day.entries_sent, 1);
+    assert!(day.spread_cost_est > 0.0, "the spread paid on entry is accounted for");
     let v = wait_for(h, "a later signal refused because of the daily target", |v| {
         v.decisions.iter().any(|x| x.decision_id != d.decision_id && x.failures().iter().any(|f| f.starts_with("objectif_journalier")))
     })

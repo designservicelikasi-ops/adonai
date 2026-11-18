@@ -765,8 +765,8 @@ impl Store {
     /// Returns `true` when the deal was new, `false` when it was already recorded.
     pub async fn insert_deal(&self, d: &Deal) -> DataResult<bool> {
         let n = sqlx::query(
-            "INSERT OR IGNORE INTO deals (deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment, origin)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO deals (deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment, origin, fee)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(d.deal_ticket)
         .bind(d.position_ticket)
@@ -780,6 +780,7 @@ impl Store {
         .bind(d.ts_ms)
         .bind(&d.comment)
         .bind(&d.origin)
+        .bind(d.fee)
         .execute(&self.pool)
         .await?
         .rows_affected();
@@ -788,7 +789,7 @@ impl Store {
 
     pub async fn deals_since(&self, since_ms: TimestampMs, limit: i64) -> DataResult<Vec<Deal>> {
         let rows = sqlx::query(
-            "SELECT deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment, origin
+            "SELECT deal_ticket, position_ticket, symbol, side, volume, price, profit, swap, commission, ts_ms, comment, origin, fee
              FROM deals WHERE ts_ms >= ? ORDER BY ts_ms DESC LIMIT ?",
         )
         .bind(since_ms)
@@ -810,6 +811,7 @@ impl Store {
                     ts_ms: r.get(9),
                     comment: r.get(10),
                     origin: r.get(11),
+                    fee: r.get(12),
                 })
             })
             .collect()

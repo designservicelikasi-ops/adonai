@@ -43,6 +43,11 @@ pub enum Body {
         symbol: String, digits: u32, point: f64, contract_size: f64, tick_size: f64, tick_value: f64,
         volume_min: f64, volume_max: f64, volume_step: f64, stops_level: f64,
         swap_long: f64, swap_short: f64, trade_mode: SymbolTradeMode, currency_profit: String,
+        /// Added in protocol 1.1; absent from older connectors.
+        #[serde(default)]
+        currency_base: String,
+        #[serde(default)]
+        freeze_level: f64,
     },
     Tick { symbol: String, time: TimestampMs, bid: f64, ask: f64 },
     Account {
@@ -64,6 +69,9 @@ pub enum Body {
         profit: f64, swap: f64, commission: f64, time: TimestampMs, comment: String,
         /// Comment of the order that opened the position (the AEGIS `cid` for AEGIS orders).
         origin: String,
+        /// Added in protocol 1.1 (MT5 `DEAL_FEE`); absent from older connectors.
+        #[serde(default)]
+        fee: f64,
     },
     BalanceOp { deal: i64, amount: f64, time: TimestampMs },
     /// Outcome of an `order` instruction, as reported by the broker.
@@ -147,9 +155,11 @@ impl Body {
             Body::Heartbeat {} => Ok(()),
             Body::Bye { reason } => ok_text("reason", reason, 256),
             Body::Error { code, msg } => ok_text("code", code, 64).and(ok_text("msg", msg, 512)),
-            Body::Spec { symbol, point, contract_size, tick_size, tick_value, volume_min, volume_max, volume_step, stops_level, swap_long, swap_short, currency_profit, .. } => {
+            Body::Spec { symbol, point, contract_size, tick_size, tick_value, volume_min, volume_max, volume_step, stops_level, swap_long, swap_short, currency_profit, currency_base, freeze_level, .. } => {
                 ok_symbol(symbol)?;
                 ok_text("currency_profit", currency_profit, 8)?;
+                ok_text("currency_base", currency_base, 8)?;
+                finite("freeze_level", &[*freeze_level])?;
                 positive("spec", &[*point, *contract_size, *tick_size, *tick_value, *volume_min, *volume_max, *volume_step])?;
                 non_negative("stops_level", &[*stops_level])?;
                 finite("swap", &[*swap_long, *swap_short])
@@ -184,13 +194,13 @@ impl Body {
                 non_negative("sl/tp", &[*sl, *tp])
             }
             Body::SnapEnd { .. } => Ok(()),
-            Body::Deal { symbol, volume, price, profit, swap, commission, comment, deal, origin, .. } => {
+            Body::Deal { symbol, volume, price, profit, swap, commission, comment, deal, origin, fee, .. } => {
                 ok_symbol(symbol)?;
                 ok_text("comment", comment, 64)?;
                 ok_text("origin", origin, 64)?;
                 if *deal <= 0 { return Err("deal ticket must be > 0".into()); }
                 positive("volume/price", &[*volume, *price])?;
-                finite("profit/swap/commission", &[*profit, *swap, *commission])
+                finite("profit/swap/commission/fee", &[*profit, *swap, *commission, *fee])
             }
             Body::BalanceOp { amount, .. } => finite("amount", &[*amount]),
             Body::Result { cid, price, volume, msg, .. } => {
@@ -242,7 +252,7 @@ impl Body {
 
     pub fn to_symbol_spec(&self) -> Option<SymbolSpec> {
         match self {
-            Body::Spec { symbol, digits, point, contract_size, tick_size, tick_value, volume_min, volume_max, volume_step, stops_level, swap_long, swap_short, trade_mode, currency_profit } => Some(SymbolSpec {
+            Body::Spec { symbol, digits, point, contract_size, tick_size, tick_value, volume_min, volume_max, volume_step, stops_level, swap_long, swap_short, trade_mode, currency_profit, currency_base, freeze_level } => Some(SymbolSpec {
                 symbol: symbol.clone(),
                 digits: *digits,
                 point: *point,
@@ -257,6 +267,8 @@ impl Body {
                 swap_short: *swap_short,
                 trade_mode: *trade_mode,
                 currency_profit: currency_profit.clone(),
+                currency_base: currency_base.clone(),
+                freeze_level_points: *freeze_level,
             }),
             _ => None,
         }
@@ -278,6 +290,8 @@ impl Body {
             swap_short: s.swap_short,
             trade_mode: s.trade_mode,
             currency_profit: s.currency_profit.clone(),
+            currency_base: s.currency_base.clone(),
+            freeze_level: s.freeze_level_points,
         }
     }
 
@@ -394,7 +408,7 @@ impl Body {
 
     pub fn to_deal(&self) -> Option<Deal> {
         match self {
-            Body::Deal { deal, position, symbol, side, volume, price, profit, swap, commission, time, comment, origin } => Some(Deal {
+            Body::Deal { deal, position, symbol, side, volume, price, profit, swap, commission, time, comment, origin, fee } => Some(Deal {
                 deal_ticket: *deal,
                 position_ticket: *position,
                 symbol: symbol.clone(),
@@ -404,6 +418,7 @@ impl Body {
                 profit: *profit,
                 swap: *swap,
                 commission: *commission,
+                fee: *fee,
                 ts_ms: *time,
                 comment: comment.clone(),
                 origin: origin.clone(),
@@ -426,6 +441,7 @@ impl Body {
             time: d.ts_ms,
             comment: d.comment.clone(),
             origin: d.origin.clone(),
+            fee: d.fee,
         }
     }
 

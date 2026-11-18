@@ -17,7 +17,7 @@ fn spec() -> SymbolSpec {
         swap_long: -6.0,
         swap_short: 1.0,
         trade_mode: SymbolTradeMode::Full,
-        currency_profit: "USD".into(),
+        currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level_points: 0.0,
     }
 }
 
@@ -223,6 +223,7 @@ async fn positions_sync_and_deals_dedup() {
         profit: 10.0,
         swap: -0.5,
         commission: -0.7,
+        fee: 0.0,
         ts_ms: 9_000,
         comment: "tp".into(),
         origin: "Acid".into(),

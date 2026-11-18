@@ -349,6 +349,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         daily_net: None,
         daily_net_pct: None,
         daily_halt: None,
+        goal: None,
         model: None,
         model_error: None,
         backtests: Vec::new(),
@@ -780,7 +781,12 @@ impl Engine {
         let detail = serde_json::to_value(&ev).unwrap_or_default();
         match &ev {
             ExecEvent::Filled { cid, ticket, price, volume, requested_volume, slippage_points } => {
-                self.inflight.remove(cid);
+                if let (Some(symbol), Some(slip)) = (self.inflight.remove(cid), slippage_points) {
+                    if let (Some(spec), Some(acc)) = (self.specs.get(&symbol), self.accounting.as_mut()) {
+                        acc.day.on_slippage(spec.price_distance_value(slip * spec.point, *volume) * slip.signum());
+                    }
+                    self.persist_accounting().await;
+                }
                 self.bind_owner(cid, *ticket).await;
                 let slip = slippage_points.map(|s| format!(", glissement {s:+.1} pts")).unwrap_or_default();
                 let part = if *volume + 1e-9 < *requested_volume { format!(" PARTIEL ({volume}/{requested_volume})") } else { String::new() };
@@ -941,6 +947,27 @@ impl Engine {
         h
     }
 
+    /// Why new entries are blocked for the day, if they are (shown on the dashboard).
+    fn daily_halt(&self, rc: &aegis_risk::RiskConfig, day: Option<&DayStats>, net_pct: Option<f64>, goal: Option<&aegis_risk::GoalStatus>, now: TimestampMs) -> Option<String> {
+        if let Some(p) = net_pct.filter(|p| *p <= -rc.max_daily_loss_pct) {
+            return Some(format!("perte journalière maximale atteinte ({p:.2} %)"));
+        }
+        if let Some(g) = goal.filter(|g| g.blocks_entries) {
+            return Some(g.detail.clone());
+        }
+        let d = day?;
+        if d.entries_sent >= rc.max_trades_per_day {
+            return Some(format!("nombre maximal de transactions atteint ({})", rc.max_trades_per_day));
+        }
+        if rc.max_consecutive_losses > 0 && d.consecutive_losses >= rc.max_consecutive_losses {
+            let until = d.last_loss_ms + rc.loss_cooldown_minutes as i64 * 60_000;
+            if now < until {
+                return Some(format!("{} pertes consécutives: pause jusqu'à {}", d.consecutive_losses, format_ts(until)));
+            }
+        }
+        None
+    }
+
     pub(crate) async fn publish(&mut self) {
         let now = now_ms();
         self.refresh_cache(now).await;
@@ -952,15 +979,8 @@ impl Engine {
             _ => None,
         };
         let rc = self.risk.config().clone();
-        let daily_halt = daily_net_pct.and_then(|p| {
-            if p <= -rc.max_daily_loss_pct {
-                Some(format!("perte journalière maximale atteinte ({p:.2} %)"))
-            } else if rc.daily_profit_target_pct > 0.0 && p >= rc.daily_profit_target_pct {
-                Some(format!("objectif journalier atteint ({p:.2} %): nouvelles entrées arrêtées"))
-            } else {
-                None
-            }
-        });
+        let goal = day.as_ref().map(|d| aegis_risk::goal_status(&rc.daily_goal, d));
+        let daily_halt = self.daily_halt(&rc, day.as_ref(), daily_net_pct, goal.as_ref(), now);
         let magic = self.cfg.execution.magic;
         let strategies = self
             .strategies
@@ -1049,6 +1069,7 @@ impl Engine {
             },
             daily_net_pct,
             daily_halt,
+            goal,
             day,
             peak_equity: peak,
             model,

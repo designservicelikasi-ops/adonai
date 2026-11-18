@@ -249,6 +249,11 @@ impl Engine {
                         Ok(()) => {
                             let _ = self.executor.mark_sent(&cid).await;
                             self.inflight.insert(cid.clone(), symbol.to_string());
+                            let spread_cost = dv.assessment.micro.as_ref().map(|m| m.costs.spread).unwrap_or(0.0);
+                            if let Some(acc) = self.accounting.as_mut() {
+                                acc.day.on_entry_sent(spread_cost);
+                            }
+                            self.persist_accounting().await;
                             self.log("info", "execution", format!(
                                 "ordre {cid} envoyé: {} {} {} lot(s), SL {sl}, TP {tp} (décision {decision_id})",
                                 intent.side, symbol, auth.volume

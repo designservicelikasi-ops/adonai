@@ -224,6 +224,12 @@ pub struct SymbolSpec {
     pub swap_short: f64,
     pub trade_mode: SymbolTradeMode,
     pub currency_profit: String,
+    /// Base currency (EUR for EURUSD). Empty when the terminal did not report it.
+    #[serde(default)]
+    pub currency_base: String,
+    /// Distance from the price inside which the broker freezes SL/TP changes, in points.
+    #[serde(default)]
+    pub freeze_level_points: f64,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -442,6 +448,9 @@ pub struct Deal {
     pub profit: f64,
     pub swap: f64,
     pub commission: f64,
+    /// Other broker fees on the deal (MT5 `DEAL_FEE`), negative = cost.
+    #[serde(default)]
+    pub fee: f64,
     pub ts_ms: TimestampMs,
     pub comment: String,
     /// Comment of the order that opened the position (the AEGIS client id for AEGIS orders).
@@ -449,8 +458,9 @@ pub struct Deal {
 }
 
 impl Deal {
+    /// Result after commission, swap and fees.
     pub fn net(&self) -> f64 {
-        self.profit + self.swap + self.commission
+        self.profit + self.swap + self.commission + self.fee
     }
 }
 
@@ -526,7 +536,7 @@ mod tests {
             swap_long: -6.5,
             swap_short: 1.2,
             trade_mode: SymbolTradeMode::Full,
-            currency_profit: "USD".into(),
+            currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level_points: 0.0,
         }
     }
 

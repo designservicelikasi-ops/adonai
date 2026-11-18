@@ -71,7 +71,7 @@ pub fn sim_spec() -> SymbolSpec {
         swap_long: -6.5,
         swap_short: 1.2,
         trade_mode: SymbolTradeMode::Full,
-        currency_profit: "USD".into(),
+        currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level_points: 0.0,
     }
 }
 
@@ -214,6 +214,7 @@ impl SimBroker {
             profit,
             swap: 0.0,
             commission,
+            fee: 0.0,
             ts_ms: now,
             comment: comment.to_string(),
             origin: p.comment.clone(),

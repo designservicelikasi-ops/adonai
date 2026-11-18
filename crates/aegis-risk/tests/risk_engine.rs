@@ -19,7 +19,7 @@ fn eurusd() -> SymbolSpec {
         swap_long: -6.5,
         swap_short: 1.2,
         trade_mode: SymbolTradeMode::Full,
-        currency_profit: "USD".into(),
+        currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level_points: 0.0,
     }
 }
 
@@ -107,8 +107,13 @@ fn proposal(id: &str) -> TradeProposal {
     }
 }
 
+/// Default limits, with probability thresholds lowered to 55 % so the reference proposal (p = 0.6) qualifies.
+fn test_config() -> RiskConfig {
+    RiskConfig { buy_min_probability: 0.55, sell_min_probability: 0.55, ..Default::default() }
+}
+
 fn engine() -> RiskEngine {
-    RiskEngine::new(RiskConfig::default()).unwrap()
+    RiskEngine::new(test_config()).unwrap()
 }
 
 fn position(ticket: i64, symbol: &str, volume: f64) -> Position {
@@ -126,6 +131,24 @@ fn position(ticket: i64, symbol: &str, volume: f64) -> Position {
         magic: 0,
         comment: String::new(),
         open_ts: NOW - 60_000,
+    }
+}
+
+fn closed(ts: i64, profit: f64, commission: f64) -> Deal {
+    Deal {
+        deal_ticket: ts,
+        position_ticket: ts,
+        symbol: "EURUSD".into(),
+        side: Side::Buy,
+        volume: 0.1,
+        price: 1.1,
+        profit,
+        swap: 0.0,
+        commission,
+        fee: 0.0,
+        ts_ms: ts,
+        comment: String::new(),
+        origin: String::new(),
     }
 }
 
@@ -176,7 +199,7 @@ fn sizing_uses_tick_value_for_non_usd_quote() {
     p.symbol = "USDJPY".into();
     p.sl = 149.810; // 200 points
     p.tp = 150.610;
-    let mut cfg = RiskConfig::default();
+    let mut cfg = test_config();
     cfg.max_notional_leverage = 50.0;
     let mut e = RiskEngine::new(cfg).unwrap();
     let a = e.evaluate(&p, &w.ctx());
@@ -216,7 +239,7 @@ fn kill_switch_blocks_everything_until_manual_reset() {
 
 #[test]
 fn kill_policy_close_is_configurable_and_state_restorable() {
-    let cfg = RiskConfig { kill_position_policy: KillPositionPolicy::Close, kill_cancel_pending: false, ..Default::default() };
+    let cfg = RiskConfig { kill_position_policy: KillPositionPolicy::Close, kill_cancel_pending: false, ..test_config() };
     let mut e = RiskEngine::new(cfg).unwrap();
     let plan = e.engage_kill("dd", "system", NOW);
     assert!(plan.close_positions && !plan.cancel_pending);
@@ -347,7 +370,7 @@ fn net_expectation_gate() {
     assert!(a.micro.unwrap().expected_net.unwrap() < 0.0);
 
     // Positive but below the configured minimum.
-    let cfg = RiskConfig { min_net_expected_profit: 1_000.0, ..Default::default() };
+    let cfg = RiskConfig { min_net_expected_profit: 1_000.0, ..test_config() };
     let mut strict = RiskEngine::new(cfg).unwrap();
     assert_rejected_for(&strict.evaluate(&proposal("c"), &w.ctx()), "esperance_nette");
 }
@@ -360,12 +383,14 @@ fn daily_loss_profit_target_and_drawdown_stop_new_entries() {
     w.account = Some(account(9_790.0)); // -2.1 % on the day, floating included
     assert_rejected_for(&e.evaluate(&proposal("a"), &w.ctx()), "perte_journaliere");
 
+    // Daily goal (15 net by default) reached on closed trades -> stop, do not push further.
     let mut w = World::new();
-    w.account = Some(account(10_101.0)); // +1.01 %: target reached -> stop, do not push further
-    w.peak = 10_101.0;
+    w.day.as_mut().unwrap().on_deal(&closed(NOW - 1_000, 16.0, -0.5));
+    w.account = Some(account(10_015.5));
+    w.peak = 10_015.5;
     assert_rejected_for(&e.evaluate(&proposal("b"), &w.ctx()), "objectif_journalier");
 
-    // A deposit is not profit: the target is not considered reached.
+    // A deposit is not profit: the goal is not considered reached.
     let mut w = World::new();
     w.account = Some(account(10_500.0));
     w.peak = 10_500.0;
@@ -549,4 +574,99 @@ fn invalid_configurations_are_refused() {
     assert_eq!(e.config(), &before, "a refused configuration leaves the old one in place");
     // Unknown fields in a stored configuration are an error, not silently dropped.
     assert!(serde_json::from_str::<RiskConfig>(r#"{"risk_per_trade_pct":0.5,"typo_field":1}"#).is_err());
+}
+
+#[test]
+fn probability_thresholds_are_per_side_and_never_lowered() {
+    let w = World::new();
+    // Reference proposal: BUY with p = 0.6.
+    let mut strict = RiskEngine::new(RiskConfig { buy_min_probability: 0.75, ..test_config() }).unwrap();
+    assert_rejected_for(&strict.evaluate(&proposal("a"), &w.ctx()), "seuil_probabilite");
+    let mut p = proposal("b");
+    p.win_probability = Some(0.80);
+    assert!(strict.evaluate(&p, &w.ctx()).approved, "80 % passes a 75 % BUY threshold");
+    // The SELL threshold is independent of the BUY one.
+    let mut e = RiskEngine::new(RiskConfig { buy_min_probability: 0.55, sell_min_probability: 0.9, ..Default::default() }).unwrap();
+    let mut sell = proposal("c");
+    sell.side = Side::Sell;
+    sell.sl = 1.10200;
+    sell.tp = 1.09600;
+    assert_rejected_for(&e.evaluate(&sell, &w.ctx()), "seuil_probabilite");
+    assert!(e.evaluate(&proposal("d"), &w.ctx()).approved);
+}
+
+#[test]
+fn trade_count_losing_streak_cooldown_and_order_rate() {
+    let mut w = World::new();
+    let mut e = RiskEngine::new(RiskConfig { max_trades_per_day: 2, ..test_config() }).unwrap();
+    w.day.as_mut().unwrap().on_entry_sent(0.1);
+    assert!(e.evaluate(&proposal("a"), &w.ctx()).approved);
+    w.day.as_mut().unwrap().on_entry_sent(0.1);
+    assert_rejected_for(&e.evaluate(&proposal("b"), &w.ctx()), "transactions_max");
+
+    // Three losses in a row with a 3-loss limit: 30 min pause from the last loss.
+    let mut e = RiskEngine::new(RiskConfig { max_consecutive_losses: 3, loss_cooldown_minutes: 30, ..test_config() }).unwrap();
+    let mut w = World::new();
+    for i in 0..3 {
+        w.day.as_mut().unwrap().on_deal(&closed(NOW - 10 * 60_000 + i, -1.0, 0.0));
+    }
+    w.account = Some(account(9_997.0));
+    assert_rejected_for(&e.evaluate(&proposal("c"), &w.ctx()), "pertes_consecutives");
+    let mut later = World::new();
+    later.day = w.day.clone();
+    later.account = Some(account(9_997.0));
+    // 31 minutes after the last loss the pause is over.
+    for d in later.day.iter_mut() {
+        d.last_loss_ms = NOW - 31 * 60_000;
+    }
+    assert!(e.evaluate(&proposal("d"), &later.ctx()).approved);
+
+    // Order rate: each consumed authorization counts for one rolling minute.
+    let mut e = RiskEngine::new(RiskConfig { max_orders_per_minute: 2, ..test_config() }).unwrap();
+    let w = World::new();
+    for id in ["e", "f"] {
+        let a = e.evaluate(&proposal(id), &w.ctx());
+        e.consume_authorization(a.authorization.as_ref().unwrap(), NOW).unwrap();
+    }
+    assert_rejected_for(&e.evaluate(&proposal("g"), &w.ctx()), "debit_ordres");
+}
+
+#[test]
+fn costs_eating_the_gains_stop_entries() {
+    let mut e = RiskEngine::new(RiskConfig { max_cost_to_gross_ratio: 0.5, cost_check_min_trades: 3, daily_goal: DailyGoal { enabled: false, ..Default::default() }, ..test_config() }).unwrap();
+    let mut w = World::new();
+    // Three micro-wins of 0.10 gross, each paying 0.07 commission: costs are 70 % of the gross.
+    for i in 0..3 {
+        w.day.as_mut().unwrap().on_deal(&closed(NOW - 60_000 + i, 0.10, -0.07));
+    }
+    assert_rejected_for(&e.evaluate(&proposal("a"), &w.ctx()), "couts_vs_gains");
+}
+
+#[test]
+fn trading_windows_and_currency_exposure() {
+    let w = World::new();
+    // NOW = 1 800 000 000 000 ms -> 08:00 UTC.
+    let inside = RiskConfig { trading_windows: vec![TradingWindow { start: "07:00".into(), end: "17:00".into() }], ..test_config() };
+    assert!(RiskEngine::new(inside).unwrap().evaluate(&proposal("a"), &w.ctx()).approved);
+    let outside = RiskConfig { trading_windows: vec![TradingWindow { start: "12:00".into(), end: "17:00".into() }], ..test_config() };
+    assert_rejected_for(&RiskEngine::new(outside).unwrap().evaluate(&proposal("b"), &w.ctx()), "horaires");
+
+    // Existing USD exposure through GBPUSD counts against the USD limit of a new EURUSD trade.
+    let mut w = World::new();
+    w.specs.insert("GBPUSD".into(), SymbolSpec { symbol: "GBPUSD".into(), currency_base: "GBP".into(), ..eurusd() });
+    w.positions = vec![position(1, "GBPUSD", 0.3)];
+    let mut e = RiskEngine::new(RiskConfig { max_currency_exposure: 4.0, max_notional_leverage: 50.0, max_open_positions: 10, ..test_config() }).unwrap();
+    let a = e.evaluate(&proposal("c"), &w.ctx());
+    assert_rejected_for(&a, "exposition_devise");
+    let detail = &a.checks.iter().find(|c| c.name == "exposition_devise").unwrap().detail;
+    assert!(detail.starts_with("USD"), "{detail}");
+}
+
+#[test]
+fn currencies_are_taken_from_the_spec_or_the_fx_name() {
+    assert_eq!(currencies_of(&eurusd()), vec!["EUR".to_string(), "USD".to_string()]);
+    let unknown = SymbolSpec { symbol: "GBPJPY.r".into(), currency_base: String::new(), currency_profit: "JPY".into(), ..eurusd() };
+    assert_eq!(currencies_of(&unknown), vec!["GBP".to_string(), "JPY".to_string()]);
+    let index = SymbolSpec { symbol: "US500".into(), currency_base: String::new(), currency_profit: "USD".into(), ..eurusd() };
+    assert_eq!(currencies_of(&index), vec!["US500".to_string(), "USD".to_string()]);
 }

@@ -12,7 +12,7 @@ fn spec() -> SymbolSpec {
     SymbolSpec {
         symbol: "EURUSD".into(), digits: 5, point: 0.00001, contract_size: 100_000.0, tick_size: 0.00001, tick_value: 1.0,
         volume_min: 0.01, volume_max: 100.0, volume_step: 0.01, stops_level_points: 10.0, swap_long: -6.5, swap_short: 1.2,
-        trade_mode: SymbolTradeMode::Full, currency_profit: "USD".into(),
+        trade_mode: SymbolTradeMode::Full, currency_profit: "USD".into(), currency_base: "EUR".into(), freeze_level_points: 0.0,
     }
 }
 
@@ -58,7 +58,7 @@ impl Rig {
         };
         let proposal = TradeProposal {
             decision_id, strategy_id: "s".into(), symbol: "EURUSD".into(), side: Side::Buy, kind, entry_price: entry, sl, tp,
-            win_probability: Some(0.6), probability_source: "test".into(), claimed_risk_amount: None, requested_volume: None,
+            win_probability: Some(0.8), probability_source: "test".into(), claimed_risk_amount: None, requested_volume: None,
         };
         let ctx = RiskContext {
             now_ms: NOW, mode: Mode::DemoAuto, connected: true, terminal: Some(TerminalKind::Mt5), account: Some(&account), specs: &specs,
