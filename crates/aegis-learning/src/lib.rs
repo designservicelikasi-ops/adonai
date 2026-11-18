@@ -10,6 +10,6 @@ pub mod features;
 pub mod model;
 pub mod monitor;
 
-pub use features::{build_dataset, compute as compute_features, dataset_to_csv, FEATURE_NAMES};
+pub use features::{build_dataset, compute as compute_features, dataset_to_csv, FEATURE_NAMES, MIN_BARS as FEATURE_MIN_BARS};
 pub use model::{GateCriteria, GateResult, ModelArtifact, ModelError, ValidationReport};
 pub use monitor::{DriftReport, LivePerformance, ModelMonitor};

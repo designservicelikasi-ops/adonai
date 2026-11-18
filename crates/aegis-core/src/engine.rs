@@ -62,6 +62,8 @@ pub(crate) struct Cache {
     pub candles: Vec<(String, String, String, i64)>,
     pub refreshed_ms: TimestampMs,
     pub dirty: bool,
+    pub journal: Vec<aegis_data::JournalEntry>,
+    pub probability_live: Option<aegis_probability::metrics::CalibrationReport>,
 }
 
 pub(crate) struct Engine {
@@ -84,6 +86,13 @@ pub(crate) struct Engine {
     /// Ticket -> time a modification/close was sent and is still unanswered.
     pub modifying: HashMap<i64, TimestampMs>,
     pub position_decisions: Vec<PositionDecisionView>,
+    /// Active P(TP before SL) model per (symbol, timeframe).
+    pub prob_models: HashMap<(String, Timeframe), Arc<aegis_probability::ProbabilityModel>>,
+    pub entry_states: HashMap<(String, Timeframe), EntryState>,
+    /// Journal rows prepared at decision time, keyed by order cid, written at the fill.
+    pub journal_seeds: HashMap<String, aegis_data::JournalEntry>,
+    /// Ticket -> (side, entry, max favourable, max adverse) in price.
+    pub excursions: HashMap<i64, (Side, f64, f64, f64)>,
     pub snap: (i64, Vec<Position>, Vec<PendingOrder>),
     pub accounting: Option<Accounting>,
     pub decisions: VecDeque<DecisionView>,
@@ -272,6 +281,10 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         initial_sl,
         modifying: HashMap::new(),
         position_decisions: Vec::new(),
+        prob_models: HashMap::new(),
+        entry_states: HashMap::new(),
+        journal_seeds: HashMap::new(),
+        excursions: HashMap::new(),
         snap: (0, Vec::new(), Vec::new()),
         accounting,
         decisions: VecDeque::new(),
@@ -305,6 +318,14 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
     };
     for d in engine.store.deals_since(now - 30 * 86_400_000, 200).await?.into_iter().rev() {
         engine.deals.push_back(d);
+    }
+    engine.load_probability_models().await;
+    for e in engine.store.journal_recent(500).await? {
+        if e.closed_ms.is_none() {
+            if let Some(side) = e.side {
+                engine.excursions.insert(e.ticket, (side, e.entry_filled, e.mfe_price, e.mae_price));
+            }
+        }
     }
     if !engine.cfg.learning.model_path.is_empty() {
         let path = std::path::PathBuf::from(engine.cfg.learning.model_path.clone());
@@ -343,6 +364,10 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         signal_timeframes: cfg.engine.signal_timeframes.clone(),
         positions: Vec::new(),
         position_decisions: Vec::new(),
+        entry_states: Vec::new(),
+        probability_models: Vec::new(),
+        probability_live: None,
+        journal: Vec::new(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -559,6 +584,7 @@ impl Engine {
                 self.specs.insert(spec.symbol.clone(), spec);
             }
             Body::Tick { symbol, time, bid, ask } => {
+                self.track_excursions(&symbol, &Tick { ts_ms: time, bid, ask });
                 let closed = self.market.on_tick(&symbol, Tick { ts_ms: time, bid, ask }, now);
                 for bar in closed {
                     self.on_closed_bar(bar).await;
@@ -758,6 +784,7 @@ impl Engine {
             acc.day.on_deal(&d);
         }
         self.persist_accounting().await;
+        self.journal_on_deal(&d).await;
         // A deal that closes a position whose opening was never confirmed proves the order ran.
         if let Some(cid) = self.executor.note_deal(&d.origin, d.position_ticket) {
             self.bind_owner(&cid, d.position_ticket).await;
@@ -799,12 +826,17 @@ impl Engine {
         let detail = serde_json::to_value(&ev).unwrap_or_default();
         match &ev {
             ExecEvent::Filled { cid, ticket, price, volume, requested_volume, slippage_points } => {
+                let mut slip_cost = 0.0;
                 if let (Some(symbol), Some(slip)) = (self.inflight.remove(cid), slippage_points) {
-                    if let (Some(spec), Some(acc)) = (self.specs.get(&symbol), self.accounting.as_mut()) {
-                        acc.day.on_slippage(spec.price_distance_value(slip * spec.point, *volume) * slip.signum());
+                    if let Some(spec) = self.specs.get(&symbol) {
+                        slip_cost = spec.price_distance_value(slip * spec.point, *volume) * slip.signum();
+                    }
+                    if let Some(acc) = self.accounting.as_mut() {
+                        acc.day.on_slippage(slip_cost);
                     }
                     self.persist_accounting().await;
                 }
+                self.journal_on_fill(cid, *ticket, *price, *volume, slip_cost).await;
                 self.bind_owner(cid, *ticket).await;
                 let slip = slippage_points.map(|s| format!(", glissement {s:+.1} pts")).unwrap_or_default();
                 let part = if *volume + 1e-9 < *requested_volume { format!(" PARTIEL ({volume}/{requested_volume})") } else { String::new() };
@@ -824,6 +856,10 @@ impl Engine {
             }
             ExecEvent::ReconciledFilled { cid, ticket } => {
                 self.inflight.remove(cid);
+                // Fill price unknown from the acknowledgement: take the broker's position price.
+                let price = self.positions.iter().find(|p| p.ticket == *ticket).map(|p| p.price_open).unwrap_or(0.0);
+                let volume = self.positions.iter().find(|p| p.ticket == *ticket).map(|p| p.volume).unwrap_or(0.0);
+                self.journal_on_fill(cid, *ticket, price, volume, 0.0).await;
                 self.bind_owner(cid, *ticket).await;
                 self.log("warn", "execution", format!("ordre {cid} retrouvé sur le compte (ticket {ticket}) lors de la réconciliation"));
             }
@@ -906,6 +942,13 @@ impl Engine {
         }
         if let Ok(v) = self.store.equity_history(2_000).await {
             self.cache.equity_history = v;
+        }
+        if let Ok(v) = self.store.journal_recent(300).await {
+            self.cache.journal = v;
+        }
+        if let Ok(closed) = self.store.journal_closed_since(now - 90 * 86_400_000, 100_000).await {
+            let preds: Vec<(f64, f64)> = closed.iter().filter_map(|e| e.probability.map(|p| (p, if e.net > 0.0 { 1.0 } else { 0.0 }))).collect();
+            self.cache.probability_live = (!preds.is_empty()).then(|| aegis_probability::metrics::reliability(&preds, &vec![0; preds.len()]));
         }
         let mut stats = Vec::new();
         for symbol in self.specs.keys().cloned().collect::<Vec<_>>() {
@@ -1074,6 +1117,14 @@ impl Engine {
             foreign_tickets: self.positions.iter().filter(|p| p.magic != magic).map(|p| p.ticket).collect(),
             positions: self.positions.clone(),
             position_decisions: self.position_decisions.clone(),
+            entry_states: {
+                let mut v: Vec<EntryState> = self.entry_states.values().cloned().collect();
+                v.sort_by(|a, b| (&a.symbol, a.timeframe).cmp(&(&b.symbol, b.timeframe)));
+                v
+            },
+            probability_models: self.probability_views(),
+            probability_live: self.cache.probability_live.clone(),
+            journal: self.cache.journal.clone(),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),

@@ -6,6 +6,7 @@ mod command;
 pub mod config;
 mod decide;
 mod engine;
+mod intel;
 pub mod logging;
 mod positions;
 pub mod view;

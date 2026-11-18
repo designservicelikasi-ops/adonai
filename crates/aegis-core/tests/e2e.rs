@@ -213,6 +213,18 @@ async fn full_cycle_signal_risk_order_fill_close_reconcile() {
     let s = v.strategies.iter().find(|s| s.meta.id == "donchian_breakout").unwrap();
     assert_eq!((s.forward.trades, s.forward.wins), (1, 1));
 
+    // The journal ties the decision to its real outcome.
+    let v = wait_for(h, "journal closed", |v| v.journal.iter().any(|e| e.ticket == ticket && e.closed_ms.is_some())).await;
+    let j = v.journal.iter().find(|e| e.ticket == ticket).unwrap();
+    assert_eq!((j.decision_id.as_str(), j.cid.as_str(), j.strategy_id.as_str()), (d.decision_id.as_str(), cid.as_str(), "donchian_breakout"));
+    assert_eq!(j.terminal, "simulator");
+    assert_eq!(j.probability, micro.win_probability);
+    assert!((j.net - deal.net()).abs() < 1e-9 && (j.gross - deal.profit).abs() < 1e-9);
+    assert!(j.est_spread_cost > 0.0 && j.mfe_price > 0.0);
+    assert_eq!(v.probability_live.as_ref().map(|r| r.n), Some(1), "live calibration counts the real trade");
+    // Entry Intelligence shows the decision of the bar.
+    assert!(v.entry_states.iter().any(|e| e.symbol == SIM_SYMBOL && e.timeframe == Timeframe::M5));
+
     // 12: everything is in the database and the audit trail is intact.
     let msg = h.command(Command::VerifyAudit).await.unwrap();
     assert!(msg.contains("intègre"));
@@ -603,4 +615,45 @@ async fn database_failure_blocks_entries_and_is_reported() {
     wait_for(h, "database back", |v| v.data.db_ok).await;
     r.sim.stop().await;
     r.h.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn probability_models_are_trained_versioned_restricted_and_rolled_back() {
+    let dir = temp_dir("probability");
+    let mut cfg = config(&dir);
+    cfg.probability = aegis_probability::ProbabilityConfig {
+        tp_grid: vec![0.5, 1.0],
+        sl_grid: vec![1.0],
+        horizon_bars: 20,
+        stride: 4,
+        folds: 3,
+        min_samples: 200,
+        ..Default::default()
+    };
+    let h = start(cfg.clone()).await.unwrap();
+    must(&h, Command::GenerateSynthetic { symbol: SIM_SYMBOL.into(), timeframe: Timeframe::M5, bars: 2_500, seed: 9 }).await;
+    let train = || Command::TrainProbability { symbol: SIM_SYMBOL.into(), timeframe: Timeframe::M5, origin: DataOrigin::Synthetic };
+    let msg = must(&h, train()).await;
+    assert!(msg.contains("SYNTHÉTIQUES"), "{msg}");
+    let v = h.snapshot();
+    assert_eq!(v.probability_models.len(), 1);
+    let first = v.probability_models[0].clone();
+    assert!(!first.usable, "a synthetic model is not usable while no simulator is connected");
+    assert!(first.buy_report.n > 0 && first.buy_report.brier.is_finite(), "real out-of-sample metrics");
+    must(&h, train()).await;
+    let second = h.snapshot().probability_models[0].model_id.clone();
+    assert_ne!(second, first.model_id, "each training is a new version");
+    must(&h, Command::ActivateProbabilityModel { model_id: first.model_id.clone() }).await;
+    assert_eq!(h.snapshot().probability_models[0].model_id, first.model_id, "rollback");
+    assert!(h.command(Command::ActivateProbabilityModel { model_id: "missing".into() }).await.is_err());
+    assert!(h.command(Command::TrainProbability { symbol: "UNKNOWN".into(), timeframe: Timeframe::M5, origin: DataOrigin::Broker }).await.is_err());
+    h.shutdown().await;
+    // The active version survives a restart, and the dataset is registered once.
+    let h = start(cfg.clone()).await.unwrap();
+    assert_eq!(h.snapshot().probability_models[0].model_id, first.model_id);
+    h.shutdown().await;
+    let store = Store::open(&dir.join("aegis.db")).await.unwrap();
+    assert_eq!(store.datasets().await.unwrap().len(), 1, "same candles, same dataset version");
+    assert_eq!(store.probability_models(None).await.unwrap().len(), 2);
+    store.close().await;
 }

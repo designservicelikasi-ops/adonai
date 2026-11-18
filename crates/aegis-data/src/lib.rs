@@ -3,7 +3,9 @@
 //! Every write that spans several rows runs inside a transaction. The audit log is
 //! append-only (enforced by triggers) and hash-chained so tampering is detectable.
 
+mod journal;
 mod records;
+pub use journal::{DatasetRow, JournalEntry, ProbabilityModelRow};
 pub use records::*;
 
 use aegis_types::{

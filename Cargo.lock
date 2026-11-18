@@ -23,6 +23,7 @@ dependencies = [
  "aegis-execution",
  "aegis-learning",
  "aegis-market",
+ "aegis-probability",
  "aegis-protocol",
  "aegis-risk",
  "aegis-simterminal",
@@ -90,6 +91,19 @@ version = "0.1.0"
 dependencies = [
  "aegis-types",
  "serde",
+]
+
+[[package]]
+name = "aegis-probability"
+version = "0.1.0"
+dependencies = [
+ "aegis-learning",
+ "aegis-market",
+ "aegis-types",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

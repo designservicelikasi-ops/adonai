@@ -36,6 +36,10 @@ pub enum Command {
     CancelOrder { ticket: i64 },
     Backup,
     LoadModel { path: PathBuf },
+    /// Train a P(TP before SL) model on stored candles (runs in the background).
+    TrainProbability { symbol: String, timeframe: Timeframe, origin: DataOrigin },
+    /// Make a stored probability model version active (rollback).
+    ActivateProbabilityModel { model_id: String },
     VerifyAudit,
     Shutdown,
 }
@@ -44,6 +48,7 @@ pub(crate) enum Internal {
     /// Result of the background database probe.
     DbPing(Result<(), String>),
     BacktestDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<BacktestDetail>, String> },
+    ProbabilityDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<aegis_probability::ProbabilityModel>, String> },
 }
 
 fn seg_view(s: &SegmentResult) -> BacktestSegmentView {
@@ -60,6 +65,11 @@ impl Engine {
                 }
                 return;
             }
+            Command::TrainProbability { symbol, timeframe, origin } => {
+                self.start_probability_training(symbol, timeframe, origin, reply).await;
+                return;
+            }
+            Command::ActivateProbabilityModel { model_id } => self.activate_probability_model(&model_id).await,
             Command::SetMode { mode, confirmation } => self.cmd_set_mode(mode, &confirmation).await,
             Command::Kill { reason } => {
                 let reason = if reason.trim().is_empty() { "arrêt manuel".to_string() } else { reason };
@@ -393,6 +403,15 @@ impl Engine {
                     }
                     Err(e) => self.db_failed(&e),
                 }
+            }
+            Internal::ProbabilityDone { reply, outcome } => {
+                let out = self.on_probability_trained(outcome).await;
+                if let Err(e) = &out {
+                    self.log("warn", "probability", format!("entraînement refusé: {e}"));
+                }
+                self.cache.dirty = true;
+                self.publish().await;
+                let _ = reply.send(out);
             }
             Internal::BacktestDone { reply, outcome } => {
                 let out = match outcome {

@@ -49,6 +49,7 @@ impl Engine {
         if !self.cfg.engine.signal_timeframes.contains(&bar.timeframe) {
             return;
         }
+        self.refresh_entry_state(&bar.symbol, bar.timeframe);
         for idx in 0..self.strategies.len() {
             let (id, runs) = {
                 let s = &self.strategies[idx];
@@ -139,6 +140,16 @@ impl Engine {
                 }
             }
             None => (None, "aucun backtest hors échantillon pour cette stratégie/instrument/unité de temps".to_string()),
+        };
+
+        // ---- P(TP before SL) from the scenario model; the most prudent validated source wins.
+        let (scenario_p, scenario_src) = self.scenario_probability(symbol, tf, intent.side, intent.tp_distance, intent.sl_distance);
+        let (win_probability, probability_source) = match (win_probability, scenario_p) {
+            (Some(a), Some(b)) if b < a => (Some(b), format!("{scenario_src} (plus prudent que: {probability_source})")),
+            (Some(a), Some(_)) => (Some(a), format!("{probability_source} (plus prudent que: {scenario_src})")),
+            (None, Some(b)) => (Some(b), scenario_src),
+            (Some(a), None) => (Some(a), format!("{probability_source}; {scenario_src}")),
+            (None, None) => (None, format!("{probability_source}; {scenario_src}")),
         };
 
         // ---- levels from the real quote
@@ -250,6 +261,9 @@ impl Engine {
                         Ok(()) => {
                             let _ = self.executor.mark_sent(&cid).await;
                             self.inflight.insert(cid.clone(), symbol.to_string());
+                            let terminal_kind = if terminal == Some(TerminalKind::Simulator) { "simulator" } else { "mt5" };
+                            let seed = crate::intel::seed_journal(&decision_id, &cid, &strategy_id, symbol, tf, intent.side, regime.as_str(), terminal_kind, entry, sl, tp, dv.assessment.micro.as_ref());
+                            self.journal_seeds.insert(cid.clone(), seed);
                             let spread_cost = dv.assessment.micro.as_ref().map(|m| m.costs.spread).unwrap_or(0.0);
                             if let Some(acc) = self.accounting.as_mut() {
                                 acc.day.on_entry_sent(spread_cost);
@@ -283,6 +297,8 @@ impl Engine {
             _ => format!("REJETÉ — {}", dv.failures().join(" ; ")),
         };
         self.log("info", "strategy", format!("signal {strategy_id} {} {symbol} {tf}: {} → {summary}", intent.side, intent.reason));
+        let why = format!("{strategy_id}: {} → {summary}", intent.reason);
+        self.note_entry_decision(symbol, tf, intent.side, &dv.outcome, why, &decision_id);
         self.decisions.push_back(dv);
         while self.decisions.len() > 300 {
             self.decisions.pop_front();

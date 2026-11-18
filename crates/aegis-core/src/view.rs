@@ -106,6 +106,57 @@ impl DecisionView {
     }
 }
 
+/// Entry Intelligence for one instrument and signal timeframe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EntryState {
+    pub symbol: String,
+    pub timeframe: Timeframe,
+    pub ts_ms: TimestampMs,
+    /// `BUY` | `SELL` | `WAIT` — WAIT is a normal decision.
+    pub decision: String,
+    pub reason: String,
+    pub decision_id: Option<String>,
+    /// P(TP before SL) of the display scenario, when a usable model exists.
+    pub buy_probability: Option<f64>,
+    pub sell_probability: Option<f64>,
+    pub probability_source: String,
+}
+
+impl EntryState {
+    pub fn wait(symbol: &str, tf: Timeframe) -> EntryState {
+        EntryState {
+            symbol: symbol.into(),
+            timeframe: tf,
+            ts_ms: 0,
+            decision: "WAIT".into(),
+            reason: "en attente de la clôture d'une bougie".into(),
+            decision_id: None,
+            buy_probability: None,
+            sell_probability: None,
+            probability_source: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProbabilityModelView {
+    pub model_id: String,
+    pub created_ms: TimestampMs,
+    pub symbol: String,
+    pub timeframe: String,
+    pub origin: DataOrigin,
+    pub dataset_hash: String,
+    pub bars: usize,
+    /// False for a synthetic-data model while a real terminal is connected.
+    pub usable: bool,
+    pub buy_selected: aegis_probability::Selected,
+    pub sell_selected: aegis_probability::Selected,
+    pub buy_reason: String,
+    pub sell_reason: String,
+    pub buy_report: aegis_probability::metrics::CalibrationReport,
+    pub sell_report: aegis_probability::metrics::CalibrationReport,
+}
+
 /// Latest Position Intelligence decision for one open position.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PositionDecisionView {
@@ -225,6 +276,12 @@ pub struct EngineView {
     pub signal_timeframes: Vec<Timeframe>,
     pub positions: Vec<Position>,
     pub position_decisions: Vec<PositionDecisionView>,
+    /// BUY / SELL / WAIT per instrument and signal timeframe.
+    pub entry_states: Vec<EntryState>,
+    pub probability_models: Vec<ProbabilityModelView>,
+    /// Calibration of the probabilities used for real trades (journal, 90 days).
+    pub probability_live: Option<aegis_probability::metrics::CalibrationReport>,
+    pub journal: Vec<aegis_data::JournalEntry>,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,
