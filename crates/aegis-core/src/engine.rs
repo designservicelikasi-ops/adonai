@@ -102,6 +102,12 @@ pub(crate) struct Engine {
     pub shadow: Option<aegis_shadow::ShadowHandle>,
     pub shadow_dropped: std::sync::atomic::AtomicU64,
     pub shadow_saved_ms: TimestampMs,
+    pub alerts: VecDeque<crate::ops::Alert>,
+    pub heartbeat_ms: TimestampMs,
+    pub last_auto_backup_ms: TimestampMs,
+    pub disconnected_since: Option<TimestampMs>,
+    pub disconnect_alerted: bool,
+    pub db_alerted: bool,
     pub snap: (i64, Vec<Position>, Vec<PendingOrder>),
     pub accounting: Option<Accounting>,
     pub decisions: VecDeque<DecisionView>,
@@ -318,6 +324,12 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         shadow: None,
         shadow_dropped: std::sync::atomic::AtomicU64::new(0),
         shadow_saved_ms: now,
+        alerts: VecDeque::new(),
+        heartbeat_ms: 0,
+        last_auto_backup_ms: 0,
+        disconnected_since: None,
+        disconnect_alerted: false,
+        db_alerted: false,
         snap: (0, Vec::new(), Vec::new()),
         accounting,
         decisions: VecDeque::new(),
@@ -353,6 +365,8 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         engine.deals.push_back(d);
     }
     engine.load_probability_models().await;
+    // First automatic backup one period after the last one (not at every restart).
+    engine.last_auto_backup_ms = engine.store.kv_get::<TimestampMs>("last_auto_backup_ms").await?.unwrap_or(now);
     if engine.cfg.shadow.enabled {
         let handle = aegis_shadow::spawn(engine.cfg.shadow.clone(), now);
         if let Some(r) = engine.store.kv_get::<aegis_shadow::ShadowReport>("shadow_report").await? {
@@ -419,6 +433,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         journal: Vec::new(),
         performance: Default::default(),
         news: Default::default(),
+        alerts: Vec::new(),
         shadow: None,
         shadow_dropped: 0,
         foreign_tickets: Vec::new(),
@@ -957,6 +972,7 @@ impl Engine {
         }
         self.maybe_fetch_news(now);
         self.persist_shadow(now).await;
+        self.run_ops(now).await;
         // The probe runs in the background so a stuck database never stalls the engine.
         if now - self.last_db_ping_ms >= 3_000 && !self.ping_in_flight {
             self.last_db_ping_ms = now;
@@ -1186,6 +1202,7 @@ impl Engine {
             journal: self.cache.journal.clone(),
             performance: self.cache.performance.clone(),
             news: self.news_view(now),
+            alerts: self.alerts.iter().cloned().collect(),
             shadow: self.shadow.as_ref().map(|s| (**s.report.borrow()).clone()),
             shadow_dropped: self.shadow_dropped.load(std::sync::atomic::Ordering::Relaxed),
             pending: self.pending.clone(),

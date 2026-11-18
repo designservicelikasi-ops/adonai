@@ -9,11 +9,12 @@ mod engine;
 mod intel;
 pub mod performance;
 mod shadowlink;
+pub mod ops;
 pub mod logging;
 mod positions;
 pub mod view;
 
 pub use command::{Command, Reply, LIVE_CONFIRMATION_PHRASE};
-pub use config::{resolve_shared_key, EngineConfig};
+pub use config::{resolve_api_token, resolve_shared_key, EngineConfig};
 pub use engine::{start, EngineHandle};
 pub use view::EngineView;

@@ -722,3 +722,29 @@ async fn shadow_observes_independently_and_promotion_needs_evidence() {
     h.shutdown().await;
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unattended_operation_heartbeat_backups_and_alerts() {
+    let dir = temp_dir("ops");
+    let mut cfg = config(&dir);
+    cfg.ops.backup_keep = 1;
+    // Pretend the last automatic backup is old: one is due at the first timer tick.
+    let store = Store::open(&dir.join("aegis.db")).await.unwrap();
+    store.kv_set("last_auto_backup_ms", &1i64).await.unwrap();
+    std::fs::create_dir_all(dir.join("backups")).unwrap();
+    std::fs::write(dir.join("backups").join("aegis-auto-1970-01-01-00-00-00.db"), b"old").unwrap();
+    std::fs::write(dir.join("backups").join("aegis-manual.db"), b"kept").unwrap();
+    store.close().await;
+    let h = start(cfg).await.unwrap();
+    wait_for(&h, "automatic backup", |v| v.data.last_backup.as_ref().is_some_and(|b| b.contains("aegis-auto-"))).await;
+    let files: Vec<String> = std::fs::read_dir(dir.join("backups")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(files.iter().filter(|f| f.starts_with("aegis-auto-")).count(), 1, "rotation keeps 1: {files:?}");
+    assert!(files.contains(&"aegis-manual.db".to_string()), "manual backups are never deleted");
+    let beat = std::fs::read_to_string(dir.join("heartbeat")).unwrap();
+    assert!(beat.contains("MONITOR") || beat.to_lowercase().contains("monitor"), "{beat}");
+    must(&h, Command::Kill { reason: "test d'alerte".into() }).await;
+    let v = wait_for(&h, "alert recorded", |v| !v.alerts.is_empty()).await;
+    assert_eq!(v.alerts[0].level, "critical");
+    assert!(v.alerts[0].text.contains("test d'alerte"));
+    h.shutdown().await;
+}

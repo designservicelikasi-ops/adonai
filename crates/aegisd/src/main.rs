@@ -11,15 +11,18 @@
 //! aegisd [--config FILE] export-dataset --symbol EURUSD --tf M15 --out FILE.csv [--origin ..] [--horizon 4]
 //! aegisd [--config FILE] verify-model --file models/model.json
 //! aegisd [--config FILE] print-config
+//! aegisd [--config FILE] train-probability --symbol EURUSD --tf M5 [--origin broker|synthetic]
+//! aegisd [--config FILE] pairing              # address, TLS fingerprint and token for AEGIS Desktop
+//! aegisd [--config FILE] systemd-unit [--user aegis]   # print a systemd service file (Linux)
+//! aegisd [--config FILE] service-install | service-uninstall   # Windows service (administrator)
 //! ```
 
-use aegis_core::{logging, resolve_shared_key, start, Command, EngineConfig};
+use aegis_core::{resolve_api_token, start, Command, EngineConfig};
 use aegis_data::Store;
 use aegis_types::{DataOrigin, Timeframe};
 use anyhow::{anyhow, bail, Context};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 struct Args {
     command: String,
@@ -97,9 +100,18 @@ async fn one_shot(mut cfg: EngineConfig, command: Command) -> anyhow::Result<()>
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let args = parse_args()?;
+    // The Windows service dispatcher blocks and creates its own runtime: it must not run inside one.
+    #[cfg(windows)]
+    if args.command == "service-run" {
+        let config_path = PathBuf::from(args.opts.get("config").cloned().unwrap_or_else(|| "config/aegis.toml".into()));
+        return aegisd::service::windows::run(&config_path);
+    }
+    tokio::runtime::Runtime::new()?.block_on(async_main(args))
+}
+
+async fn async_main(args: Args) -> anyhow::Result<()> {
     let config_path = PathBuf::from(args.opts.get("config").cloned().unwrap_or_else(|| "config/aegis.toml".into()));
     let cfg = EngineConfig::load(&config_path).with_context(|| format!("loading {}", config_path.display()))?;
 
@@ -160,43 +172,53 @@ async fn main() -> anyhow::Result<()> {
             one_shot(cfg, c).await
         }
         "run" => run(cfg, args.flags.iter().any(|f| f == "simulator")).await,
+        "train-probability" => {
+            let c = Command::TrainProbability { symbol: args.need("symbol")?.into(), timeframe: args.tf()?, origin: args.origin()? };
+            one_shot(cfg, c).await
+        }
+        "pairing" => {
+            let (token, source) = resolve_api_token(&cfg)?;
+            let scheme = if cfg.api.tls { "https" } else { "http" };
+            println!("AEGIS Desktop — connexion à ce moteur");
+            println!("  adresse      : {scheme}://{}", cfg.api.listen);
+            if cfg.api.tls {
+                aegisd::tls::install_crypto_provider();
+                let files = aegisd::tls::ensure(&cfg.engine.data_dir.join("tls"), &cfg.api.tls_names)?;
+                println!("  empreinte TLS: {}", files.fingerprint);
+            }
+            println!("  jeton        : {token}   ({source})");
+            println!("Ne communiquez ce jeton qu'à vous-même: il donne le contrôle du moteur.");
+            Ok(())
+        }
+        "systemd-unit" => {
+            let exe = std::env::current_exe()?;
+            let cfg_abs = std::fs::canonicalize(&config_path).unwrap_or(config_path.clone());
+            let wd = std::env::current_dir()?;
+            print!("{}", aegisd::service::systemd_unit(&exe, &cfg_abs, &wd, args.opts.get("user").map(String::as_str).unwrap_or("aegis")));
+            Ok(())
+        }
+        #[cfg(windows)]
+        "service-install" => {
+            let cfg_abs = std::fs::canonicalize(&config_path).with_context(|| format!("{} must exist", config_path.display()))?;
+            aegisd::service::windows::install(&cfg_abs)?;
+            println!("service {} installé (démarrage automatique, redémarrage en cas d'échec)", aegisd::service::SERVICE_NAME);
+            Ok(())
+        }
+        #[cfg(windows)]
+        "service-uninstall" => {
+            aegisd::service::windows::uninstall()?;
+            println!("service {} supprimé", aegisd::service::SERVICE_NAME);
+            Ok(())
+        }
+        #[cfg(not(windows))]
+        "service-install" | "service-uninstall" | "service-run" => bail!("Windows only; on Linux use `aegisd systemd-unit`"),
         other => bail!("unknown command `{other}` (see the header of crates/aegisd/src/main.rs or docs/USER_MANUAL.md)"),
     }
 }
 
 async fn run(cfg: EngineConfig, simulator: bool) -> anyhow::Result<()> {
-    let _log_guard = logging::init(&cfg.engine.data_dir.join("logs"), true)?;
-    let engine = Arc::new(start(cfg.clone()).await?);
-    tracing::info!("AEGIS engine running in MONITOR mode; terminal endpoint {}", engine.bridge_addr);
-
-    if cfg.api.enabled {
-        let token = std::env::var(&cfg.api.token_env).map_err(|_| anyhow!("the API is enabled but {} is not set", cfg.api.token_env))?;
-        let app = aegisd::router(engine.clone(), token.trim().to_string())?;
-        let listener = tokio::net::TcpListener::bind(&cfg.api.listen).await.with_context(|| format!("binding {}", cfg.api.listen))?;
-        tracing::info!("control API listening on {}", cfg.api.listen);
-        tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, app).await {
-                tracing::error!("API stopped: {e}");
-            }
-        });
-    }
-
-    let sim = if simulator {
-        let (psk, _) = resolve_shared_key(&cfg)?;
-        tracing::warn!("starting the built-in SIMULATOR (test adapter, synthetic prices, instrument EURUSD.sim) — this is not a broker");
-        let sim_cfg = aegis_simterminal::SimTerminalConfig::new(&engine.bridge_addr.to_string(), &psk).with_synthetic_history(600, aegis_types::now_ms(), 11);
-        Some(aegis_simterminal::spawn(sim_cfg))
-    } else {
-        None
-    };
-
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("shutdown requested");
-    if let Some(s) = sim {
-        s.stop().await;
-    }
-    // The API task holds clones of the handle: stop through the shared reference so
-    // the engine always closes its database cleanly.
-    engine.stop().await;
-    Ok(())
+    aegisd::daemon::serve(cfg, simulator, async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await
 }

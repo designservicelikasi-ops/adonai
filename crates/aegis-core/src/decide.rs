@@ -367,6 +367,7 @@ impl Engine {
             self.db_failed(&e.to_string());
         }
         self.audit(actor, "kill_switch_engaged", json!({ "reason": reason })).await;
+        self.alert("critical", "risk", format!("ARRÊT D'URGENCE engagé par {actor}: {reason}"));
         self.log("error", "risk", format!("ARRÊT D'URGENCE engagé par {actor}: {reason} — nouvelles entrées bloquées"));
         self.kill_plan_pending = true;
         self.apply_kill_plan().await;

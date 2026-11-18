@@ -297,6 +297,8 @@ pub struct EngineView {
     /// Closed AEGIS trades analysed at every horizon (gross, net, costs).
     pub performance: crate::performance::PerformanceReport,
     pub news: NewsView,
+    /// Critical events (kill switch, disconnection in automatic mode, database, backups), newest first.
+    pub alerts: Vec<crate::ops::Alert>,
     /// Independent Shadow Intelligence report (None when disabled).
     pub shadow: Option<aegis_shadow::ShadowReport>,
     /// Copies the shadow could not take (queue full): its view may be incomplete.

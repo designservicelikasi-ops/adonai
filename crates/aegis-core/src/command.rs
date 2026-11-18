@@ -17,16 +17,33 @@ pub type Reply = Result<String, String>;
 /// Phrase the user must type, with the account number, to arm LIVE AUTO.
 pub const LIVE_CONFIRMATION_PHRASE: &str = "J'ACCEPTE LE RISQUE REEL";
 
-#[derive(Debug, Clone)]
+/// JSON form (HTTP API): `{"type": "set_mode", "args": {"mode": "demo_auto", "confirmation": ""}}`,
+/// unit commands without `args`: `{"type": "backup"}`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", content = "args", rename_all = "snake_case")]
 pub enum Command {
     /// `confirmation` is only used for LIVE AUTO: "<account login> J'ACCEPTE LE RISQUE REEL".
-    SetMode { mode: Mode, confirmation: String },
-    Kill { reason: String },
+    SetMode {
+        mode: Mode,
+        #[serde(default)]
+        confirmation: String,
+    },
+    Kill {
+        #[serde(default)]
+        reason: String,
+    },
     ResetKill { phrase: String },
     SetRiskConfig(RiskConfig),
     SetStrategyEnabled { id: String, enabled: bool },
     SetStrategyStage { id: String, stage: StrategyStage },
-    RunBacktest { strategy_id: String, symbol: String, timeframe: Timeframe, origin: DataOrigin, params: BacktestParams },
+    RunBacktest {
+        strategy_id: String,
+        symbol: String,
+        timeframe: Timeframe,
+        origin: DataOrigin,
+        #[serde(default)]
+        params: BacktestParams,
+    },
     /// Generate SYNTHETIC candles for an instrument (testing and demonstration only).
     GenerateSynthetic { symbol: String, timeframe: Timeframe, bars: usize, seed: u64 },
     ImportCsv { path: PathBuf, symbol: String, timeframe: Timeframe, utc_offset_hours: i64 },
