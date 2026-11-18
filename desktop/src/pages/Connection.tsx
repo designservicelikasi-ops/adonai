@@ -15,10 +15,10 @@ export default function Connection({ profile, onConnected, onForget }: { profile
     api.localStatus().then(setLocal).catch(() => setLocal(null));
   }, []);
 
-  const startLocal = async () => {
+  const startLocal = async (simulator = false) => {
     setBusy(true);
     try {
-      await api.localStart();
+      await api.localStart(simulator);
       toast("ok", "Moteur local démarré et appairé. Il continue de tourner si vous fermez l'application.");
       onConnected({ url: "https://127.0.0.1:7879", fingerprint: "", has_token: true, local: true });
     } catch (e) {
@@ -68,9 +68,17 @@ export default function Connection({ profile, onConnected, onForget }: { profile
         </p>
         <div className="mb-4 text-xs text-fog-500 num break-all">{local?.data_dir}</div>
         {local && !local.installed && <p className="mb-3 text-xs text-down-400">{local.detail}</p>}
-        <Button kind="primary" disabled={busy || (local !== null && !local.installed)} onClick={startLocal}>
-          {local?.running ? "Se connecter au moteur local" : "Démarrer le moteur local"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button kind="primary" disabled={busy || (local !== null && !local.installed)} onClick={() => startLocal(false)}>
+            {local?.running ? "Se connecter au moteur local" : "Démarrer le moteur local"}
+          </Button>
+          {!local?.running && (
+            <Button disabled={busy || (local !== null && !local.installed)} onClick={() => startLocal(true)} title="Prix synthétiques sur EURUSD.sim : pour découvrir le logiciel sans MetaTrader 5">
+              … avec le simulateur de test
+            </Button>
+          )}
+        </div>
+        <p className="mt-2 text-[11px] text-fog-500">Le simulateur est un adaptateur de test (prix fictifs, instrument EURUSD.sim). Il est signalé partout comme tel et ne dit rien d'une performance réelle.</p>
       </Panel>
       <Panel title="Moteur distant (VPS)">
         <div className="space-y-3 text-sm">

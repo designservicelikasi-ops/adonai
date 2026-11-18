@@ -1,5 +1,59 @@
 # Historique des versions
 
+## 0.2.0 — 2026-11-18
+
+Réalisée d'après la spécification v2 (`docs/SPECIFICATION.md`). Développée et testée sur macOS
+(Apple Silicon) ; ce qui n'a pas pu être vérifié est listé dans `PROJECT_STATUS.md`.
+
+### Ajouté
+
+- **Daily Profit Goal Manager** : objectif en devise du compte, brut ou net, restant,
+  progression, politiques (arrêter, protéger le gain, suivre). Comptabilité du jour séparant
+  profit brut, perte brute, net, commissions, spread estimé, slippage mesuré, swap, frais.
+- **Moteur de risque étendu** : seuils BUY/SELL de P(TP avant SL), transactions max par jour
+  (jusqu'à 10 000), pertes consécutives et pause, débit d'ordres, horaires UTC, exposition par
+  devise, coûts du jour vs gains bruts, plafond de lots par transaction.
+- **6 stratégies** : RSI momentum, suivi de tendance, pullback, retour à la moyenne Bollinger,
+  rejet support/résistance, expansion de volatilité (9 au total) ; unité M1 permise.
+- **Position Intelligence** : HOLD, SECURE (point mort + coûts), ADJUST SL (stop suiveur),
+  ADJUST TP, CLOSE (temps, net réalisable) ; jamais d'élargissement ; distances et gel broker.
+- **Probability Engine** (`aegis-probability`) : P(TP avant SL) par triple barrière,
+  régression logistique, walk-forward purgé, calibration croisée, Brier/log loss/ECE/fiabilité,
+  sélection contre un modèle de référence ; versions, jeux de données, retour arrière ;
+  calibration réelle des transactions exécutées.
+- **Entry Intelligence** : BUY / SELL / WAIT par instrument avec probabilités affichées.
+- **Journal des transactions** et **performance** (heure, jour, semaine, mois, stratégie,
+  instrument, heure, régime ; profit factor, espérance, coûts, efficacité des sorties,
+  drawdown, Sharpe, dégradation).
+- **News Intelligence** (`aegis-news`) : calendrier économique, autorisé / prudent / suspendu.
+- **Shadow Intelligence** (`aegis-shadow`) : champion / challenger papier, opportunités
+  manquées, entrées et sorties prématurées, évaluation historique, promotion explicite vers la
+  démo.
+- **aegisd** : API complète (résumé, sections, commandes génériques), HTTPS avec certificat
+  épinglé (`aegis-client`), jeton automatique, limitation des échecs, appairage, surveillance
+  CPU/RAM, service Windows, unité systemd, heartbeat, sauvegardes automatiques, alertes
+  (webhook).
+- **AEGIS Desktop** (Tauri 2, React, TypeScript, Tailwind) remplaçant l'application egui :
+  10 pages, moteur local détaché ou VPS, simulateur de test, identité visuelle (logo, icônes).
+- **Pipeline CI** (Windows, Linux, macOS) : tests, serveur, installateurs, installation
+  automatique, compilation MQL5, dossier `RELEASES/`.
+- **Connecteur 1.10** (protocole 1.1, compatible) : frais, devise de base, niveau de gel.
+- Test de capacité : 2 000 allers-retours.
+- Documentation : modes, sécurité, configuration, API, VPS, installations Windows/Linux,
+  compilation, connecteur, validation des modèles, tests, dépannage.
+
+### Modifié
+
+- L'API est activée par défaut (boucle locale, TLS).
+- L'objectif journalier en % d'équité (`daily_profit_target_pct`) est remplacé par
+  `daily_goal` (une configuration 0.1 contenant l'ancienne clé doit être mise à jour).
+- Les paramètres de stratégie enregistrés survivent aux redémarrages.
+- Les tests embarquent leurs fichiers du dépôt à la compilation (défaut d'environnement macOS).
+
+### Retiré
+
+- Application de bureau egui (`aegis-control`), remplacée par AEGIS Desktop.
+
 ## 0.1.0 — 2026-11-15
 
 Première version complète. Tout a été développé et testé sur macOS (Apple Silicon).

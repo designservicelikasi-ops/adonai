@@ -12,7 +12,7 @@ SQLite ne demande aucune installation. Les requêtes ne sont pas vérifiées à 
 (il faudrait une base présente pour compiler) ; en contrepartie, chaque requête est couverte
 par des tests. Le SQL reste portable vers PostgreSQL.
 
-## D3 — egui/eframe pour l'application de bureau
+## D3 — egui/eframe pour l'application de bureau (remplacée en 0.2 : voir D21)
 Rust natif, un seul binaire, Windows/Linux/macOS. Le moteur tourne **dans le même processus**
 que l'interface : pas de protocole supplémentaire à sécuriser entre les deux. Coût : pas
 d'interface distante ; pour un VPS on utilise `aegisd` et son API HTTP.
@@ -107,3 +107,65 @@ journaux ; l'application la montre masquée, avec un bouton pour la copier vers 
 eframe 0.31, SQLx 0.8, Axum 0.7, hmac 0.12, sha2 0.10, rand 0.8, toml 0.8, alors que des
 versions plus récentes existent : des API connues et stables plutôt que les dernières sorties.
 `Cargo.lock` est livré pour une compilation reproductible.
+
+---
+
+# Décisions de la version 0.2 (spécification v2, 2026-11-18)
+
+## D21 — AEGIS Desktop en Tauri 2, client de l'API
+L'application egui (même processus que le moteur) est remplacée par Tauri 2 + React +
+TypeScript + Tailwind, qui ne contient pas le moteur : elle pilote `aegisd` (local ou VPS) par
+l'API. Fermer la fenêtre n'arrête rien. L'installateur embarque `aegisd` (`externalBin`) ; le
+« moteur local » est lancé en **processus détaché**, jamais comme enfant de la fenêtre.
+Versions épinglées à des séries stables connues (React 18, Vite 6, TypeScript 5, Tailwind 3,
+Lightweight Charts 4) plutôt qu'aux dernières majeures. Tauri 2 et non Tauri 3 (alpha).
+
+## D22 — TLS sur l'API, certificat auto-signé épinglé
+Un VPS n'a souvent pas de nom de domaine. Le moteur crée un certificat ECDSA au premier
+démarrage ; le desktop épingle son empreinte SHA-256 (`aegis-client`, vérificateur rustls
+dédié). Aucune autorité de certification n'est approuvée : un autre certificat est refusé avant
+l'envoi du jeton. Les appels réseau sont faits côté Rust, jamais depuis la vue web.
+`rustls` avec `ring` (pas d'`aws-lc`, qui exige CMake/NASM sous Windows).
+
+## D23 — Liaison MT5 inchangée (HMAC, non chiffrée)
+MQL5 sait faire du TLS mais pas épingler un certificat auto-signé de façon vérifiable sans
+terminal. La liaison reste sur la boucle locale du VPS (ou un tunnel).
+
+## D24 — P(TP avant SL) par modèle de scénario « triple barrière »
+La probabilité utilisée est celle qu'un scénario précis (TP et SL en ATR) touche sa cible
+d'abord — jamais une probabilité directionnelle. Étiquettes pessimistes (TP et SL dans la même
+bougie = perte), régression logistique (parité facile, explicable, rapide sur 8 Go),
+walk-forward purgé, calibration de Platt croisée. Le modèle complet doit battre un modèle de
+référence « scénario seul » ; sinon la référence calibrée ; sinon rien. La probabilité retenue
+est la plus prudente des sources validées.
+
+## D25 — Objectif quotidien en devise du compte, brut ou net, sur les transactions clôturées
+L'objectif ne modifie jamais la taille, les seuils ni la fréquence : il peut seulement arrêter
+les entrées (`stop_entries`), les arrêter si le gain redescend (`protect_gains`) ou être suivi
+(`track_only`). Mesuré sur le réalisé (le flottant n'est pas « gagné »). Défaut : 15, **net**.
+
+## D26 — Shadow dans une tâche séparée, sans dépendance vers l'exécution
+Le Shadow reçoit des copies (bougies, décisions, transactions) par un canal borné et produit
+un rapport. Son crate ne dépend ni de l'exécution ni du protocole : il ne peut pas construire
+d'ordre. Une promotion est une commande de l'utilisateur, vers la Démo uniquement.
+
+## D27 — Plafond de lots pour le micro-trading
+Avec des stops serrés (M1/M5), la taille « au risque » devient énorme et l'exposition bloque
+tout. `max_lots_per_trade` plafonne la taille ; il ne peut que la réduire.
+
+## D28 — Paramètres de stratégie modifiables, stratégie renvoyée en Recherche
+Les preuves (backtests, forward) ont été obtenues avec d'autres paramètres : elles sont
+retirées et la stratégie revient au stade Recherche. Les paramètres enregistrés survivent aux
+redémarrages (en 0.1, ils étaient écrasés par les valeurs par défaut au démarrage).
+
+## D29 — API : commandes génériques, chemins confinés, pas d'arrêt par le réseau
+`POST /api/v1/command` accepte toute commande du moteur (même validation que l'interface).
+Les chemins de fichiers sont relatifs à `<data_dir>/files/` ; `shutdown` est refusé (c'est le
+rôle du gestionnaire de service).
+
+## D30 — Calendrier économique public, jamais « calme » par défaut
+Source par défaut : flux JSON public de calendrier (configurable, ou fichier local). Une valeur
+publiée absente de la source reste vide. Un calendrier injoignable met en « prudence » (ou
+suspend, au choix). Aucun modèle de langage n'est utilisé : cette option prévue par la
+spécification n'a pas été implémentée (elle exigerait une clé d'API et n'apporterait rien de
+vérifiable aux règles de fenêtre).

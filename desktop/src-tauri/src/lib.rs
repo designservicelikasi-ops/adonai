@@ -179,7 +179,7 @@ async fn local_engine_status(app: AppHandle) -> Result<LocalStatus, String> {
 
 /// Start the bundled engine as a detached process and pair with it automatically.
 #[tauri::command]
-async fn local_engine_start(app: AppHandle, state: State<'_, AppState>) -> Result<Value, String> {
+async fn local_engine_start(app: AppHandle, state: State<'_, AppState>, simulator: bool) -> Result<Value, String> {
     let exe = engine_exe()?;
     let dir = local_dir(&app)?;
     let config = dir.join("aegis.toml");
@@ -196,7 +196,12 @@ async fn local_engine_start(app: AppHandle, state: State<'_, AppState>) -> Resul
     let already = tauri::async_runtime::spawn_blocking(move || probe_fingerprint(&probe).is_ok()).await.map_err(err)?;
     if !already {
         let mut cmd = std::process::Command::new(&exe);
-        cmd.arg("--config").arg(&config).arg("run").current_dir(&dir).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        cmd.arg("--config").arg(&config).arg("run");
+        if simulator {
+            // Test adapter: synthetic prices on EURUSD.sim, clearly labelled everywhere.
+            cmd.arg("--simulator");
+        }
+        cmd.current_dir(&dir).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;

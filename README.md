@@ -1,68 +1,59 @@
 # AEGIS — Adaptive Engine for Intelligent Strategies
 
-Plateforme de trading automatisé et de gestion des risques pour MetaTrader 5.
-Priorité : préserver le capital, expliquer chaque décision, ne jamais présenter une
-simulation comme du réel.
+Plateforme de trading automatisé et de gestion du risque pour MetaTrader 5, orientée
+**micro-gains à espérance nette positive** : beaucoup de petites transactions, chacune validée
+indépendamment par sa probabilité calibrée d'atteindre la cible avant le stop, ses coûts réels
+et les limites de risque — ou pas de transaction du tout.
 
-> **AEGIS ne promet aucun gain.** Un backtest ou un modèle décrivent le passé. Le trading
-> comporte un risque de perte. Validez toujours sur un compte de **démonstration** d'abord.
+> AEGIS ne promet aucune rentabilité. Aucune stratégie ni aucun modèle livré n'a encore été
+> validé sur des données de marché réelles. Le trading réel (LIVE AUTO) est désactivé par
+> défaut. État détaillé : [`PROJECT_STATUS.md`](PROJECT_STATUS.md).
 
-## Ce que fait le logiciel
+## Composants
 
-1. Le **connecteur MT5** (`mt5/`) envoie au moteur les prix, le compte et les positions.
-2. Le **moteur** (Rust) construit les bougies, calcule les indicateurs, détecte le régime de
-   marché et fait tourner les stratégies.
-3. Chaque signal est chiffré : coûts (spread, commission, swap, slippage, conversion),
-   espérance nette, puis **moteur de risque** (taille de position, limites, arrêt d'urgence).
-4. Seul un signal qui passe **tous** les contrôles reçoit une autorisation à usage unique ;
-   l'ordre part alors vers MT5, et n'est considéré exécuté que sur confirmation du broker.
-5. Tout est enregistré (base SQLite + journal d'audit chaîné) et visible dans
-   l'**application de bureau** (18 pages).
+| Composant | Quoi | Où |
+|---|---|---|
+| **AEGIS ENGINE** | serveur Rust autonome (`aegisd`) : marché, 9 stratégies, Probability Engine, risque, objectif quotidien, gestion des positions, exécution, journal, actualités, Shadow, API TLS, service Windows/systemd | `crates/` |
+| **AEGIS CONNECTOR** | Expert Advisor MQL5 : données et exécution authentifiée | `mt5/` |
+| **AEGIS DESKTOP** | application Tauri 2 (React/TypeScript) de supervision et de contrôle, locale ou vers un VPS | `desktop/` |
 
-Trois modes : **MONITOR** (aucun ordre, mode de démarrage systématique), **DEMO AUTO**
-(compte de démonstration vérifié), **LIVE AUTO** (désactivé par défaut, armement manuel).
-
-## Démarrage rapide (macOS / Linux)
+## Démarrage rapide (sans MetaTrader : simulateur de test)
 
 ```sh
-./scripts/setup.sh        # installe Rust si besoin, compile, crée config/aegis.toml
-./scripts/run.sh          # ouvre l'application (moteur en MONITOR)
+./scripts/setup.sh          # compile le moteur, puis l'application si Node.js est présent
+./scripts/run.sh            # ouvre AEGIS Desktop
 ```
 
-Pour essayer sans MetaTrader : page **Connexion MT5 → Démarrer le simulateur**. Le
-simulateur est un adaptateur de test (prix fictifs, instrument `EURUSD.sim`) ; l'application
-l'indique partout en orange.
+Page *Connexion* → « Démarrer le moteur local … avec le simulateur de test ». Tout ce que
+produit le simulateur est fictif et signalé comme tel.
 
-Pour connecter un vrai terminal MT5 : voir `docs/USER_MANUAL.md` (§ 3).
-
-Windows : `scripts/setup.ps1` (**non vérifié**, voir plus bas).
-
-## État de vérification
-
-| Élément | État |
-|---|---|
-| Moteur, risque, protocole, backtest, exécution, IA (Rust) | **Vérifié** — 159+ tests automatisés, voir `TEST_REPORT.md` |
-| Cycle complet signal → ordre → clôture | **Vérifié avec le simulateur** (adaptateur de test) |
-| Application de bureau | **Compilée et lancée sur macOS (Apple Silicon)** ; rendu des 18 pages testé sans fenêtre ; aspect visuel non inspecté |
-| Chaîne IA (export → entraînement Python → rechargement) | **Vérifiée** (parité Rust/Python : 1e-16) |
-| Connecteur MQL5 | **NON VÉRIFIÉ** — écrit, jamais compilé (pas de MetaEditor sur la machine de développement) |
-| Connexion à un vrai compte MT5 de démonstration | **NON VÉRIFIÉ** |
-| Compilation Windows et Linux | **NON VÉRIFIÉ** |
-
-Les limites connues sont listées sans détour dans `KNOWN_LIMITATIONS.md`.
+Moteur seul : `./scripts/run-daemon.sh [--simulator]`, puis `aegisd pairing` pour connecter
+le desktop.
 
 ## Documentation
 
-| Fichier | Contenu |
+| Pour… | Lire |
 |---|---|
-| `docs/USER_MANUAL.md` | Utiliser l'application, connecter MT5, comprendre une décision |
-| `docs/DEPLOYMENT.md` | Installation, moteur sur VPS Linux + MT5 sous Windows |
-| `docs/BACKUP_RECOVERY.md` | Sauvegarde, restauration, reprise après incident |
-| `docs/RISK.md` | Règles de risque, convention comptable, arrêt d'urgence |
-| `docs/PROTOCOL.md` | Protocole moteur ↔ connecteur |
-| `docs/BACKTESTING.md` | Hypothèses du backtester, séparation des données |
-| `docs/DEVELOPER_MANUAL.md` | Structure du code, tests, ajout d'une stratégie |
-| `ARCHITECTURE.md`, `DECISIONS.md` | Architecture et décisions techniques |
-| `TEST_REPORT.md`, `KNOWN_LIMITATIONS.md` | Ce qui a été testé, ce qui ne l'a pas été |
-| `PROJECT_STATUS.md`, `CHANGELOG.md` | Avancement et historique |
-| `docs/SPECIFICATION.md` | La demande d'origine, telle quelle |
+| Utiliser l'application | [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md), [`docs/TRADING_MODES.md`](docs/TRADING_MODES.md) |
+| Installer | [`docs/INSTALLATION_WINDOWS.md`](docs/INSTALLATION_WINDOWS.md), [`docs/INSTALLATION_LINUX.md`](docs/INSTALLATION_LINUX.md), [`docs/VPS_DEPLOYMENT.md`](docs/VPS_DEPLOYMENT.md), [`docs/MT5_CONNECTOR.md`](docs/MT5_CONNECTOR.md) |
+| Configurer | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md), [`docs/RISK.md`](docs/RISK.md), `config/aegis.example.toml` |
+| Comprendre | [`ARCHITECTURE.md`](ARCHITECTURE.md), [`DECISIONS.md`](DECISIONS.md), [`docs/MODEL_VALIDATION.md`](docs/MODEL_VALIDATION.md), [`docs/BACKTESTING.md`](docs/BACKTESTING.md) |
+| Sécurité | [`docs/SECURITY.md`](docs/SECURITY.md) |
+| Intégrer | [`docs/API_PROTOCOL.md`](docs/API_PROTOCOL.md), [`docs/MT5_PROTOCOL_V1.md`](docs/MT5_PROTOCOL_V1.md) |
+| Développer, compiler, tester | [`docs/DEVELOPER_MANUAL.md`](docs/DEVELOPER_MANUAL.md), [`docs/BUILD_GUIDE.md`](docs/BUILD_GUIDE.md), [`docs/TESTING.md`](docs/TESTING.md), [`TEST_REPORT.md`](TEST_REPORT.md) |
+| Dépanner | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md), [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md) |
+| Limites | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) |
+| Historique | [`CHANGELOG.md`](CHANGELOG.md), spécification : [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md) |
+
+## Principes
+
+- **MONITOR au démarrage, toujours.** DEMO AUTO exige un compte de démonstration ; LIVE AUTO
+  exige d'être autorisé dans la configuration, une stratégie approuvée et une phrase de
+  confirmation avec le numéro du compte.
+- **Une probabilité non validée n'existe pas.** Pas de probabilité calibrée hors échantillon
+  ⇒ pas d'entrée. Les seuils de l'utilisateur ne sont jamais abaissés automatiquement.
+- **Le net, pas le brut.** Spread, commission, slippage, swap et frais sont estimés avant
+  chaque ordre et mesurés après ; brut et net ne sont jamais confondus.
+- **Le broker fait foi.** Un état inconnu n'est jamais pris pour une absence d'exécution.
+- **Rien d'inventé.** Une valeur indisponible s'affiche comme telle ; le simulateur est
+  signalé partout ; ce qui n'a pas été testé est écrit « NON VÉRIFIÉ ».

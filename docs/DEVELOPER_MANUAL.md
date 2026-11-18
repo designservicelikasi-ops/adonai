@@ -8,12 +8,13 @@ travailler dans le code.
 
 | Outil | Version utilisée | Rôle |
 |---|---|---|
-| Rust (stable) | 1.100.0 | Tout le moteur et l'application |
+| Rust (stable) | 1.100.0 | Tout le moteur, côté natif de l'application |
+| Node.js | 22 | Interface d'AEGIS Desktop (`desktop/`) |
 | uv + Python | 3.12 | Entraînement des modèles (`research/`) |
 | MetaEditor | — | Compilation du connecteur (`mt5/`), **non disponible** sur la machine de développement |
 
-Sous Linux, l'application de bureau demande en plus :
-`build-essential pkg-config libxkbcommon-dev libwayland-dev libx11-dev libgl1-mesa-dev`.
+Sous Linux, AEGIS Desktop demande en plus :
+`libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev` (voir `BUILD_GUIDE.md`).
 
 ## 2. Commandes
 
@@ -22,36 +23,44 @@ Sous Linux, l'application de bureau demande en plus :
 ./scripts/t.sh test -p aegis-risk                   # un seul crate
 ./scripts/t.sh test -p aegis-core --test e2e        # la suite de bout en bout
 ./scripts/t.sh clippy --workspace --all-targets     # analyse statique
-cargo build --release -p aegis-control -p aegisd    # binaires : target/release/aegis et aegisd
-cargo run -p aegisd -- run --simulator              # moteur sans interface + simulateur de test
+cargo build --release -p aegisd                     # moteur : target/release/aegisd
+cargo run -p aegisd -- run --simulator              # moteur + simulateur de test
+./scripts/desktop-dev.sh                            # AEGIS Desktop en développement
 ```
 
 `scripts/t.sh` lance `cargo` et n'affiche que les erreurs de compilation, les tests échoués
 et le total. Pour la sortie complète, utilisez `cargo` directement.
 
-La première compilation prend plusieurs minutes (bibliothèque graphique). Sur une machine de
+La première compilation de l'application prend plusieurs minutes (Tauri, WebKit). Sur une machine de
 8 Go, évitez de lancer deux compilations en même temps.
 
 ## 3. Où est quoi
 
 ```
 crates/
-  aegis-types/        types partagés (instrument, bougie, compte, position, modes)
-  aegis-data/         SQLite : src/lib.rs (Store), src/records.rs, migrations/*.sql
-  aegis-risk/         engine.rs (contrôles), costs.rs, day.rs (journée comptable),
-                      auth.rs (autorisations signées), config.rs (limites dures)
-  aegis-protocol/     lib.rs (trames, session), handshake.rs, messages.rs, io.rs
+  aegis-types/        types partagés (instrument, bougie, compte, position, transaction, modes)
+  aegis-data/         SQLite : lib.rs (Store), journal.rs (journal, modèles, jeux de données), migrations/*.sql
+  aegis-risk/         engine.rs (contrôles), costs.rs, day.rs (journée brut/net), goal.rs (objectif),
+                      position.rs (Position Intelligence), auth.rs, config.rs (bornes)
+  aegis-protocol/     protocole MT5 : lib.rs (trames, session), handshake.rs, messages.rs, io.rs
   aegis-market/       candles.rs, indicators.rs, regime.rs, lib.rs (qualité des données)
-  aegis-strategy/     lib.rs (trait Strategy), strategies.rs, lifecycle.rs (promotion)
+  aegis-strategy/     lib.rs (trait, registre), strategies.rs, strategies2.rs, lifecycle.rs
+  aegis-probability/  lib.rs (triple barrière, entraînement, sélection), logistic.rs, metrics.rs, linalg.rs
   aegis-backtest/     lib.rs (moteur, métriques, segments), csv.rs, synthetic.rs
-  aegis-learning/     features.rs, model.rs (artefact, inférence, portail), monitor.rs (dérive)
-  aegis-execution/    lib.rs (cycle de vie des ordres, réconciliation)
-  aegis-core/         engine.rs (boucle), decide.rs (chaîne de décision), command.rs,
-                      bridge.rs (réseau), config.rs, view.rs (état publié), logging.rs
-  aegis-simterminal/  broker.rs (broker simulé), terminal.rs (client réseau) — ADAPTATEUR DE TEST
-  aegis-control/      app.rs, ui/mod.rs (cadre, navigation), ui/pages_a.rs, ui/pages_b.rs
-  aegisd/             main.rs (ligne de commande), lib.rs (API HTTP)
+  aegis-learning/     features.rs (source unique des variables), model.rs, monitor.rs
+  aegis-news/         calendrier, recommandation
+  aegis-shadow/       lib.rs (messages, rapport), lab.rs (papier, hypothèses, analyse)
+  aegis-execution/    cycle de vie des ordres, réconciliation
+  aegis-core/         engine.rs (boucle), decide.rs (chaîne de décision), positions.rs, intel.rs
+                      (probabilités, BUY/SELL/WAIT, journal, actualités), performance.rs,
+                      shadowlink.rs, ops.rs (heartbeat, sauvegardes, alertes), command.rs,
+                      bridge.rs, config.rs, view.rs (état publié), logging.rs
+  aegis-simterminal/  broker.rs, terminal.rs — ADAPTATEUR DE TEST
+  aegis-client/       client de l'API avec épinglage TLS
+  aegisd/             main.rs (ligne de commande), lib.rs (API), daemon.rs, tls.rs, monitor.rs, service.rs
+desktop/              src/ (React : App.tsx, pages/, components/), src-tauri/ (Rust : lib.rs)
 mt5/                  AegisConnector.mq5, AegisProtocol.mqh, AegisSelfTest.mq5
+packaging/            installation des services (systemd, Windows)
 research/             train.py, pyproject.toml, uv.lock
 config/               aegis.example.toml
 scripts/              installation, lancement, tests, sauvegarde, recherche
@@ -145,15 +154,20 @@ d'acceptation **et** un test de rejet dans `tests/risk_engine.rs`. Documentez-le
 
 ## 9. Ajouter une page ou une valeur à l'interface
 
-- L'interface ne lit que `EngineView` (`aegis-core/src/view.rs`), publié par le moteur. Pour
-  afficher une nouvelle valeur : ajoutez-la à la vue, remplissez-la dans le moteur, puis
-  affichez-la. N'effectuez aucun calcul métier dans l'interface.
-- Une valeur qui peut manquer est un `Option` et s'affiche « Indisponible ».
-- Une action de l'utilisateur est une `Command` (`aegis-core/src/command.rs`) envoyée au
-  moteur ; l'interface affiche la réponse.
-- Une nouvelle page : variante dans `Page` (`ui/mod.rs`), entrée dans `Page::ALL`, fonction
-  de dessin dans `pages_a.rs` ou `pages_b.rs`. Le test `tests/ui.rs` dessine toutes les pages
-  de `Page::ALL` sans fenêtre.
+- L'interface ne lit que l'état publié (`EngineView`, `aegis-core/src/view.rs`) par l'API :
+  `/api/v1/summary` (rafraîchi chaque seconde) et `/api/v1/view/<section>` (par page). Pour
+  afficher une nouvelle valeur : l'ajouter à la vue, la remplir dans le moteur, l'ajouter à
+  `SUMMARY_KEYS` (`aegisd/src/lib.rs`) si le tableau de bord en a besoin, puis l'afficher.
+  Aucun calcul métier dans l'interface.
+- Une valeur qui peut manquer est un `Option` et s'affiche « — » ou avec la raison.
+- Une action est une `Command` (`aegis-core/src/command.rs`), sérialisée
+  `{"type","args"}` et envoyée par `api.command` (`desktop/src/api.ts`) ; l'interface affiche
+  la réponse du moteur.
+- Une nouvelle page : un fichier dans `desktop/src/pages/`, une entrée dans `PAGES`
+  (`App.tsx`). Vérification visuelle : construire avec `VITE_AEGIS_PREVIEW=1`, fournir
+  `preview-fixtures.json` (réponses réelles capturées) et ouvrir `#page=<id>`.
+- Tous les appels réseau passent par le côté Rust (`desktop/src-tauri/src/lib.rs`), qui
+  épingle le certificat ; la politique de sécurité du contenu interdit tout autre accès.
 
 ## 10. Chaîne de recherche (IA)
 

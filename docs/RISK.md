@@ -43,16 +43,33 @@ résultat brut attendu = p × gain brut − (1 − p) × perte brute
 | `prix_valide`, `prix_frais` | prix absent, incohérent, trop vieux ou daté du futur |
 | `spread` | spread au-dessus du maximum |
 | `perte_journaliere` | perte nette du jour ≥ limite |
-| `objectif_journalier` | objectif du jour atteint |
+| `objectif_journalier` | objectif quotidien (devise du compte, brut ou net) bloquant selon sa politique |
+| `transactions_max` | nombre maximal d'entrées du jour atteint |
+| `pertes_consecutives` | série de pertes ≥ limite et pause pas encore écoulée |
+| `couts_vs_gains` | coûts du jour > part autorisée des gains bruts (après N transactions) |
+| `horaires` | hors des plages de trading UTC |
+| `debit_ordres` | trop d'entrées sur la dernière minute |
 | `drawdown` | drawdown ≥ limite |
 | `positions_max`, `positions_par_instrument` | trop de positions/ordres |
 | `niveaux_valides`, `niveaux_coherents`, `distance_stops`, `prix_ordre_attente` | stop ou cible absent, du mauvais côté, trop proche |
 | `taille_position`, `risque_par_transaction` | volume minimum impossible, risque au-dessus du budget |
-| `exposition`, `marge_libre` | notionnel total > limite, exposition incalculable, marge insuffisante |
+| `exposition`, `exposition_devise`, `marge_libre` | notionnel total ou par devise > limite, exposition incalculable, marge insuffisante |
+| `seuil_probabilite` | P(TP avant SL) absente ou sous le seuil BUY/SELL de l'utilisateur |
 | `esperance_nette` | espérance nette insuffisante ou non calculable |
 
 Contrôles ajoutés par le moteur central : `base_de_donnees`, `stade_strategie`,
-`regime_marche`, `qualite_donnees`, `ordre_en_cours`, `filtre_ia`.
+`regime_marche`, `qualite_donnees`, `ordre_en_cours`, `filtre_ia`, `actualites` (suspendu
+autour d'une annonce forte ; en prudence, probabilité exigée = seuil + marge).
+
+La taille est calculée au risque (`risk_per_trade_pct`) puis éventuellement **réduite** par
+`max_lots_per_trade` ; elle n'est jamais augmentée.
+
+## Objectif quotidien et gestion des positions
+
+Voir `CONFIGURATION.md` (objectif : brut ou net, politiques) et `DECISIONS.md` (D25). La
+gestion des positions (SECURE au point mort + coûts, stop suiveur, rapprochement du TP,
+sortie au temps ou au net réalisable) ne déplace jamais un stop dans le sens défavorable et
+respecte les distances minimales et le niveau de gel du broker.
 
 ## Autorisation
 

@@ -1,108 +1,167 @@
-# AEGIS — État du projet
+# AEGIS — État du projet et rapport de livraison (0.2.0)
 
-Ce fichier permet de reprendre le développement sans perdre le contexte.
-Dernière mise à jour : 2026-11-15 (version 0.1.0).
+Dernière mise à jour : 2026-11-18. Référence : spécification v2 (`docs/SPECIFICATION.md`),
+audit et plan (`docs/AUDIT_V2.md`). Ce fichier permet de reprendre le travail sans perdre le
+contexte et répond à la partie XVIII de la spécification. **Tout résultat ci-dessous a été
+observé ; ce qui ne l'a pas été est marqué NON VÉRIFIÉ, avec la raison et la procédure.**
 
 ## En une phrase
 
-Le logiciel est complet, compilé et testé **sur macOS avec le simulateur**. Il **n'est pas
-encore déclaré terminé** au sens de la spécification : deux critères de livraison dépendent
-d'un terminal MetaTrader 5 sous Windows, indisponible sur la machine de développement
-(critères 7 et 12 ci-dessous).
+Le logiciel est complet et testé **sur macOS avec le simulateur** (223 tests, application
+compilée et lancée, capacité mesurée) ; il **n'est pas encore livrable au sens de la
+spécification** car trois vérifications exigent des environnements absents de la machine de
+développement : builds/installateurs Windows et Linux (pipeline CI prêt, jamais exécuté faute
+de dépôt distant), compilation du connecteur MQL5 et essai sur un vrai compte démo MT5.
 
-## Phases
+## 1. Architecture réellement réalisée
 
-| Phase | Contenu | État |
-|---|---|---|
-| 0 | Environnement, workspace Rust, Git | Fait |
-| 1 | Core + Data (SQLite, migrations, audit chaîné, sauvegarde/restauration) | Fait, testé |
-| 2 | Moteur de risque (taille, coûts, limites, autorisations, arrêt d'urgence) | Fait, testé |
-| 3 | Protocole authentifié (HMAC, session, anti-rejeu) | Fait, testé |
-| 4 | Connecteur MT5 (Expert Advisor MQL5, auto-test) | **Écrit, jamais compilé** — pas de MetaEditor |
-| 5 | Moteur de marché (bougies, indicateurs, régimes, qualité) | Fait, testé |
-| 6 | Stratégies + backtesting | Fait, testé |
-| 7 | IA : variables, entraînement Python, inférence Rust, portail, dérive | Fait, testé sur données synthétiques |
-| 8 | Exécution + micro-profits + réconciliation | Fait, testé de bout en bout avec le simulateur |
-| 9 | Application de bureau (18 pages) + `aegisd` (API HTTP, ligne de commande) | Fait, testé sans fenêtre ; aspect visuel non inspecté |
-| 10 | Intégration globale | Fait : 14 tests de bout en bout |
-| 11 | Compilation, documentation, archives | Fait pour macOS ; Windows et Linux non compilés |
+Trois composants (détail : `ARCHITECTURE.md`) :
 
-Tests : **159 réussis, 0 échoué** (`./scripts/test.sh`). Détail dans `TEST_REPORT.md`.
+- **AEGIS ENGINE** — `aegisd`, workspace Rust de 16 crates : marché, 9 stratégies, Probability
+  Engine, risque (objectif quotidien, gestion des positions), exécution, journal, performance,
+  actualités, Shadow, données (SQLite), API Axum + TLS, service Windows/systemd, surveillance.
+- **AEGIS CONNECTOR** — `mt5/AegisConnector.mq5` 1.10 (protocole 1.1).
+- **AEGIS DESKTOP** — `desktop/` : Tauri 2 + React 18 + TypeScript + Tailwind, client épinglé de
+  l'API, moteur local embarqué lancé en processus détaché.
 
-## Critères de livraison de la spécification (§ 12)
+## 2. Modules opérationnels (vérifiés par des tests exécutés)
 
-| # | Critère | État | Preuve ou raison |
-|---|---|---|---|
-| 1 | Le projet compile dans l'environnement cible vérifié | **Vérifié sur macOS (Apple Silicon)** ; Windows et Linux **NON VÉRIFIÉ** | `cargo build --release` : binaires `aegis` et `aegisd` produits et lancés |
-| 2 | Tous les modules implémentés sont intégrés | Vérifié | `aegis-core/tests/e2e.rs` : cycle complet en 15 étapes |
-| 3 | La base fonctionne et résiste aux redémarrages | Vérifié | `aegis-data/tests/store.rs`, tests de redémarrage et de panne de base |
-| 4 | Le moteur de risque réussit ses tests | Vérifié | 25 tests (`aegis-risk`) |
-| 5 | Les ordres non autorisés sont bloqués | Vérifié | autorisation forgée, expirée, réutilisée, arrêt d'urgence, MONITOR |
-| 6 | Le protocole réussit ses tests | Vérifié côté moteur | 20 tests (`aegis-protocol`) + tests de bout en bout |
-| 7 | Le connecteur MT5 compile lorsque MetaEditor est disponible | **NON VÉRIFIÉ** | MetaEditor indisponible (macOS) |
-| 8 | Le backtesting produit des résultats reproductibles | Vérifié | tests de reproductibilité (unitaire et bout en bout) |
-| 9 | Le sous-système IA a des résultats de validation documentés | Vérifié **sur données synthétiques** | `models/demo-synthetic-model.report.md` ; portail **non passé**, comme attendu. Aucun modèle sur données réelles |
-| 10 | L'interface communique avec le véritable backend | Vérifié sans fenêtre ; aspect visuel **NON VÉRIFIÉ** | `aegis-control/tests/ui.rs` ; application lancée |
-| 11 | MONITOR ne peut pas exécuter de transactions | Vérifié | `monitor_mode_observes_but_never_trades` |
-| 12 | DEMO AUTO fonctionne dans un environnement de démonstration vérifié | **NON VÉRIFIÉ** sur un compte de démonstration MT5 | Vérifié uniquement avec le simulateur, qui est un adaptateur de test et non un broker |
-| 13 | LIVE AUTO reste désactivé par défaut | Vérifié | `live_auto_is_off_by_default_and_cannot_be_enabled_casually` |
-| 14 | Journaux et traces d'audit persistants | Vérifié | audit chaîné, falsification détectée, conservé après arrêt brutal |
-| 15 | Procédures d'installation et de récupération documentées | Fait | `docs/DEPLOYMENT.md`, `docs/BACKUP_RECOVERY.md`, `scripts/` (`setup.ps1` non exécuté) |
-| 16 | Rapport complet de tests livré | Fait | `TEST_REPORT.md` |
+| Module | Preuve |
+|---|---|
+| Market Intelligence (ticks, bougies M1–H1, ATR, volatilité, momentum, tendance, Bollinger, supports/résistances, régimes, qualité) | `aegis-market` 18 tests ; e2e |
+| Strategy Engine — 9 stratégies (EMA crossover, RSI momentum, suivi de tendance, breakout, pullback, retour à la moyenne RSI et Bollinger, rejet S/R, volatilité) | `aegis-strategy` 20 tests (un scénario par stratégie, pas de regard vers le futur) |
+| Probability Engine — P(TP avant SL), Brier, log loss, fiabilité, walk-forward, calibration, versions, retour arrière | `aegis-probability` 10 tests ; e2e `probability_models_…` ; essai en release (§ 12) |
+| Entry Intelligence — BUY / SELL / WAIT | e2e ; observé dans l'interface |
+| Position Intelligence — HOLD / SECURE / ADJUST SL / ADJUST TP / CLOSE | `aegis-risk` 7 tests ; e2e (stop sécurisé constaté sur le simulateur) |
+| Risk Engine (toutes les limites de la partie VIII) | `aegis-risk` 47 tests |
+| Execution Engine (idempotence, partiels, rejets, inconnu, réconciliation) | `aegis-execution` 10 tests ; e2e |
+| Micro Profit Engine (coûts, espérance nette) | `aegis-risk` costs ; capacité (§ 12) |
+| Daily Goal Manager (brut/net, restant, politiques) | `aegis-risk` goal ; e2e |
+| News Intelligence | `aegis-news` 5 tests + lecture réelle (125 événements) ; e2e suspension |
+| Shadow Intelligence (champion/challenger, opportunités manquées, analyses) | `aegis-shadow` 5 tests ; e2e indépendance et refus de promotion |
+| Learning (versions de jeux de données et de modèles, calibration, dérive, retour arrière) | `aegis-data` journal ; `aegis-learning` 12 tests |
+| Base de données et historique (journal, performance) | `aegis-data` 14 tests ; `performance` 4 tests ; e2e |
+| API sécurisée (TLS épinglé, jeton, limitation, chemins confinés) | `aegisd` tests `api`, `tls_api` ; essai réel avec `openssl` |
+| Fonctionnement continu (heartbeat, sauvegardes, alertes, CPU/RAM, unité systemd) | e2e `unattended_operation_…` ; tests `monitor`, `service` |
+| Desktop | compilé (`AEGIS.app`), lancé ; 10 pages rendues avec des données réelles du moteur |
 
-## Prochaines tâches concrètes
+## 3. Modules partiels
 
-Dans cet ordre. Les trois premières demandent un PC Windows avec MetaTrader 5.
+| Module | Ce qui manque |
+|---|---|
+| Connecteur MT5 | écrit et aligné sur le protocole 1.1, **jamais compilé** (pas de MetaEditor) |
+| Service Windows | écrit, **jamais compilé** (code Windows uniquement) |
+| News | pas d'interprétation par modèle de langage (option, voir `DECISIONS.md` D30) ; la source ne publie pas les valeurs réelles |
+| Shadow | forward papier sans slippage, positions papier non persistées entre deux redémarrages |
 
-1. **Compiler le connecteur** dans MetaEditor et corriger les erreurs (`mt5/`).
-   Procédure : `docs/DEVELOPER_MANUAL.md`, § 14.
-2. Lancer `AegisSelfTest` : il doit afficher `ALL PASSED`.
-3. **Essai sur un compte de démonstration** : suivre la liste de contrôle de
-   `docs/DEPLOYMENT.md`, § 6, moteur en MONITOR d'abord, puis DEMO AUTO. Reporter ce qui est
-   réellement constaté dans `TEST_REPORT.md`.
-4. Compiler sous Windows et sous Linux (`scripts/setup.ps1`, `scripts/setup.sh`, ou le flux
-   `.github/workflows/build.yml` après un envoi sur GitHub).
-5. Regarder l'application à l'écran, page par page, et corriger la mise en page si besoin.
-6. Collecter des bougies **réelles** par le connecteur, relancer backtests et entraînement
-   (`./scripts/research.sh EURUSD M15 broker`). Aucune stratégie ni aucun modèle n'a encore
-   été évalué sur des données de marché réelles.
+## 4. Modules non réalisés
 
-Améliorations possibles ensuite : voir `KNOWN_LIMITATIONS.md` (liaison non chiffrée, comptes
-« netting », paramétrage des stratégies depuis l'interface, journée comptable à l'heure du
-broker).
+Aucun module de la spécification n'est absent. Non réalisés : l'interprétation des actualités
+par modèle de langage (facultative) ; un modèle ONNX (la régression logistique suffit, D10/D24).
+
+## 5. Résultats des tests
+
+**223 réussis, 0 échoué** (`./scripts/test.sh`) + 2 tests lancés à part (réseau, capacité),
+réussis. TypeScript : `tsc --noEmit` sans erreur. Détail par module : `TEST_REPORT.md`.
+
+## 6. Résultats de compilation
+
+| Cible | État |
+|---|---|
+| Moteur macOS arm64 (release) | **Vérifié** — 13,5 Mo |
+| AEGIS Desktop macOS arm64 (`.app`) | **Vérifié** — 21,5 Mo, moteur embarqué |
+| Moteur et installateurs Windows x64 (.exe NSIS, .msi) | **NON VÉRIFIÉ** — job CI `server`/`desktop` |
+| Moteur et paquets Linux x64 (AppImage, .deb, .rpm) | **NON VÉRIFIÉ** — job CI `server`/`desktop` |
+| Connecteur MQL5 (.ex5) | **NON VÉRIFIÉ** — job CI `mql5` |
+
+## 7. Tests MT5
+
+**NON VÉRIFIÉ.** Aucun terminal MT5 disponible. Couverture actuelle : tests de compatibilité
+qui rejouent exactement les trames produites par le code MQL5 (protocoles 1.0 et 1.1) et
+toute la chaîne contre le simulateur. Procédure : `docs/MT5_CONNECTOR.md`.
+
+## 8. Tests DEMO
+
+**NON VÉRIFIÉ** sur un compte de démonstration réel. DEMO AUTO a fonctionné contre le
+simulateur (e2e et 10 minutes d'exécution observées).
+
+## 9. Builds Windows
+
+**NON VÉRIFIÉS.** `.github/workflows/build.yml` construit sur `windows-latest` : moteur,
+installateurs NSIS et MSI, installation silencieuse, présence d'`aegisd.exe`, désinstallation,
+compilation MQL5. Il faut pousser le dépôt sur GitHub pour l'exécuter.
+
+## 10. Builds Linux
+
+**NON VÉRIFIÉS.** Même pipeline sur `ubuntu-22.04` : AppImage, .deb, .rpm ; installation et
+désinstallation du .deb.
+
+## 11. Fichiers livrables
+
+`RELEASES/` (ne contient que des fichiers réellement produits, voir `RELEASES/README.md`) :
+application macOS (zip), moteur macOS, sources du connecteur, documentation, notes de version.
+Aucun fichier Windows ni Linux : ils n'existent pas encore.
+
+## 12. Performances mesurées (macOS arm64, release)
+
+| Mesure | Valeur |
+|---|---|
+| 2 000 allers-retours (entrée + sortie) par la chaîne complète, broker simulé | 1,66 s ; médiane 0,76 ms, p99 2,47 ms, max 4,76 ms |
+| Décision de risque | médiane 7 µs |
+| Entraînement P(TP avant SL), 8 000 bougies, 40 scénarios, 5 plis | 1,4 s |
+| Moteur au repos avec simulateur | ≈ 23 Mo de mémoire |
+| Latence MT5 / broker | **non mesurée** (compte démo requis) |
+
+## 13. Limites connues
+
+`KNOWN_LIMITATIONS.md` (25 points). Les plus importantes : rien n'est validé sur données de
+marché réelles ; liaison MT5 non chiffrée (boucle locale ou tunnel) ; commission à saisir.
+
+## 14. Problèmes restants
+
+1. Exécuter le pipeline CI (Windows, Linux, MQL5) et corriger ce qu'il révélera — en
+   particulier la compilation MQL5, écrite sans compilateur.
+2. Essai complet sur compte démo (procédure : `MT5_CONNECTOR.md`).
+3. Collecte d'historique broker, entraînement, backtests réels, Shadow sur bougies réelles ;
+   aucune stratégie n'a de preuve réelle aujourd'hui.
+4. Installer le service sur un VPS et éprouver le redémarrage automatique.
+
+## 15. Instructions d'installation
+
+`docs/INSTALLATION_WINDOWS.md`, `docs/INSTALLATION_LINUX.md` ; depuis les sources :
+`./scripts/setup.sh` puis `./scripts/run.sh`.
+
+## 16. Instructions de déploiement VPS
+
+`docs/VPS_DEPLOYMENT.md` : `packaging/windows/install-service.ps1` (ou
+`packaging/linux/install.sh`), pare-feu limité à votre adresse, `aegisd pairing`, connexion du
+desktop.
 
 ## Comment reprendre
 
 ```sh
 . "$HOME/.cargo/env"
-cd aegis
-./scripts/test.sh                 # tous les tests, sortie compacte
-./scripts/run.sh                  # application de bureau (après ./scripts/setup.sh)
-./scripts/run-daemon.sh --simulator   # moteur sans interface + simulateur de test
+./scripts/test.sh                                    # 223 tests
+cargo run -p aegisd -- run --simulator               # moteur + simulateur
+./scripts/desktop-dev.sh                             # interface en développement
+cargo test --release -p aegis-core --test capacity -- --ignored --nocapture
 ```
 
-Lire d'abord : `README.md`, puis `ARCHITECTURE.md`, `DECISIONS.md` et
+Lire d'abord `README.md`, `ARCHITECTURE.md`, `DECISIONS.md` (D21–D30 pour la 0.2), puis
 `docs/DEVELOPER_MANUAL.md`.
 
-## Archives
+## Historique des phases (spécification v2)
 
-`dist/` (non suivi par Git) :
-
-- `aegis-0.1.0-source.zip` : projet complet (code, connecteur MT5, migrations, configuration
-  d'exemple, scripts, documentation, rapport de tests) ;
-- `aegis-0.1.0-macos-arm64.zip` : binaires `aegis` et `aegisd` compilés pour macOS Apple
-  Silicon, avec la configuration d'exemple et la documentation.
-
-Il n'existe pas de binaire Windows ni Linux : ils n'ont pas pu être compilés ici.
-
-## Décisions à ne pas perdre
-
-Voir `DECISIONS.md`. Les plus structurantes :
-
-- Le moteur démarre **toujours** en MONITOR ; aucun mode automatique n'est restauré.
-- En MONITOR, **aucune** trame d'ordre ne sort du moteur (y compris les clôtures manuelles).
-- Le simulateur (`aegis-simterminal`) est un adaptateur de test : instrument `EURUSD.sim`,
-  données stockées comme `synthetic`, jamais éligible au réel.
-- Une probabilité de gain n'existe que si un backtest hors échantillon (≥ 30 transactions)
-  est enregistré ; sinon l'espérance nette est « non calculable » et l'entrée est refusée.
-- Le modèle IA ne peut que s'opposer à un signal ; il n'en crée jamais.
+| Phase | Contenu | Commit |
+|---|---|---|
+| 0 | audit, spécification v2, correctif d'environnement des tests | `a3c0a5f`, audit |
+| A | objectif quotidien, brut/net, limites étendues, protocole 1.1 | `7471155` |
+| B | 6 stratégies, Position Intelligence | `c6133bb` |
+| C | Probability Engine, Entry Intelligence, journal | `3ceaa23` |
+| D | performance | `cea3775` |
+| E | News Intelligence | `78b0f43` |
+| F | Shadow, paramètres de stratégie | `a3832a2` |
+| G | API, TLS, service, ops | `d988c11` |
+| H | AEGIS Desktop, CI, packaging, documentation | `24ebcf7` |
+| I | capacité, version 0.2.0 | `2f680c4` |
+| K | documentation finale, `RELEASES/` | dernier commit |

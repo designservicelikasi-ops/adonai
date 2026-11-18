@@ -12,3 +12,7 @@ research/.venv/
 research/__pycache__/
 research/out/
 .DS_Store
+
+# Release artifacts are produced by the build, not committed (only the index is).
+/RELEASES/*
+!/RELEASES/README.md

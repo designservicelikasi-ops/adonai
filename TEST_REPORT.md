@@ -1,132 +1,92 @@
-# Rapport de tests
+# Rapport de tests — AEGIS 0.2.0
 
-Exécution du 2026-11-15 sur macOS 27 (Apple Silicon M1, 8 Go), Rust 1.100.0, Python 3.12.15.
+Date : 2026-11-18. Machine : macOS 27 (Darwin 27.2), Apple Silicon (arm64), 8 Go. Rust 1.100,
+Node 22.23. Seuls les résultats **observés** figurent ici ; ce qui n'a pas pu être exécuté est
+marqué **NON VÉRIFIÉ** avec la raison.
 
-Commande : `cargo test --workspace --all-features` (ou `./scripts/test.sh`).
+## 1. Tests automatisés
 
-**Résultat : 159 tests exécutés, 159 réussis, 0 échoué, 0 ignoré.**
-La suite de bout en bout a en plus été relancée 10 fois de suite sans échec.
+Commande : `./scripts/test.sh` (équivalent `cargo test --workspace --all-features`).
+Résultat : **223 réussis, 0 échoué, 2 ignorés volontairement** (test réseau du calendrier,
+test de capacité : lancés à part, voir § 3 et § 4).
 
-Ces chiffres sont ceux réellement obtenus ; rien n'est simulé ni extrapolé.
-
-## Par module
-
-| Suite | Tests | Ce qui est vérifié |
+| Module | Tests | Ce qui est couvert |
 |---|---|---|
-| `aegis-types` (unitaires) | 6 | Arrondi des volumes au pas du broker (toujours vers le bas), valeur d'une distance de prix, validation des spécifications et des bougies |
-| `aegis-data` `tests/store.rs` | 12 | Migrations, intégrité, **doublons refusés** (décision, ordre, autorisation), **clés étrangères**, lot de bougies invalide annulé en entier, cycle de vie d'un ordre tracé, synchronisation des positions, journal d'audit **ajout seul et chaîné** (falsification détectée), **état conservé après arrêt brutal**, sauvegarde/restauration, rétention |
-| `aegis-risk` (unitaires) | 8 | Coûts recalculés à la main, petit gain brut absorbé par les frais, swap et conversion, comptabilité journalière (réalisé / flottant / dépôts), drawdown |
-| `aegis-risk` `tests/risk_engine.rs` | 17 | **Tous les cas d'autorisation et de rejet** : taille depuis les spécifications broker (y compris devise de cotation ≠ compte), MONITOR, arrêt d'urgence, connexion, compte absent/périmé/incohérent, prix absent/périmé/futur/invalide, instrument, spread, niveaux SL/TP, espérance nette, perte journalière, objectif journalier, drawdown, nombre de positions, exposition, marge, volume jamais arrondi vers le haut, montant de risque externe ignoré, décision dupliquée, démo ≠ réel, LIVE exige armement + compte réel + MT5, autorisation à usage unique / expirée / falsifiée, configurations invalides refusées |
-| `aegis-protocol` (unitaires `io`) | 4 | Découpage des trames, trame trop grande, flux tronqué, **lecture interrompue sans perte d'octets** |
-| `aegis-protocol` `tests/protocol.rs` | 12 | Aller-retour de tous les messages, **trames non authentifiées ou altérées rejetées**, **rejeu / doublon / désordre rejetés**, trames d'une autre session, horodatage hors fenêtre, version, taille, contenu invalide, poignée de main (mauvaise clé, hello rejoué, welcome forgé), vecteur RFC 4231 |
-| `aegis-protocol` `tests/mql5_compat.rs` | 4 | Les messages **tels que le connecteur MQL5 les fabrique** sont acceptés ; les instructions du moteur contiennent tous les champs que le connecteur lit ; valeurs de référence de `AegisSelfTest.mq5` |
-| `aegis-market` (unitaires) | 17 | EMA/RSI/ATR contre des valeurs calculées à la main, agrégation tick → bougie, série ordonnée et sans doublon, bougies manquantes, agrégation multi-unités, régimes, sessions, **ticks invalides rejetés**, **prix obsolète**, **spread anormal**, **décalage d'horloge**, indicateurs indisponibles sans historique |
-| `aegis-strategy` (unitaires + `tests/strategies.rs`) | 13 | Entrées/sorties des trois stratégies, silence sans historique, **décision indépendante des bougies futures**, configuration validée, promotion : un bon backtest seul n'atteint jamais le réel, borne de Wilson |
-| `aegis-backtest` (unitaires + `tests/backtest.rs`) | 17 | Arithmétique exacte d'une transaction (entrée à l'ouverture suivante + spread, cible, stop), **stop supposé avant la cible** dans la même bougie, **gap au-delà du stop**, vente stoppée sur l'ask, commission/slippage/swap, sortie sur signal, compte trop petit, métriques recalculées à la main, **reproductibilité**, **absence de biais d'anticipation**, les coûts dégradent toujours le résultat, segments disjoints, walk-forward, CSV, générateur déterministe |
-| `aegis-learning` (unitaires) | 12 | Variables finies et bornées, **indépendantes du futur**, libellés, inférence recalculée à la main, artefacts incohérents refusés, **portail recalculé depuis les métriques**, **modèle entraîné en Python rechargé avec la même inférence** (écart < 1e-12), PSI, prédictions notées seulement après leur horizon |
-| `aegis-execution` `tests/execution.rs` | 10 | **Une autorisation = un seul ordre**, autorisation forgée/expirée/arrêt d'urgence ⇒ aucun ordre, statut dicté par le broker (exécuté, rejeté, partiel, en attente), succès sans ticket ≠ exécuté, silence ⇒ `unknown` puis réconciliation, redémarrage, trame non livrée, position ouverte **et** clôturée avant toute confirmation, commandes de gestion qui ne peuvent que réduire le risque |
-| `aegis-simterminal` (unitaires) | 6 | Comptabilité du broker simulé, stops/cibles, **instruction dupliquée non réexécutée**, expiration, volume, écart de prix, injection de pannes, ordres en attente |
-| `aegis-core` (unitaires) | 3 | Configuration par défaut sûre, fichier invalide refusé (faute de frappe incluse), fichier de clé créé en `0600` |
-| `aegis-core` `tests/e2e.rs` | 14 | Voir « Bout en bout » ci-dessous |
-| `aegisd` `tests/api.rs` | 1 | API HTTP : jeton obligatoire, requête non authentifiée sans effet, commandes relayées au moteur, **arrêt propre du moteur** alors que l'API en détient encore des références (base refermée, journal d'écriture vidé) |
-| `aegis-control` `tests/ui.rs` | 3 | Interface ↔ moteur réel (voir ci-dessous) |
+| `aegis-types` | 6 | types, arrondis, volumes, spécifications |
+| `aegis-data` | 2 + 12 | migrations, audit chaîné et falsification, journal des transactions (idempotence, clôtures partielles), versions de modèles et retour arrière, jeux de données, sauvegarde/restauration, rétention |
+| `aegis-risk` | 24 + 23 | objectif quotidien (brut/net, politiques), comptabilité du jour (brut, net, coûts, série de pertes), Position Intelligence (SECURE, trailing, TP, sortie, gel, distance broker, jamais d'élargissement), seuils BUY/SELL, transactions max, pause après pertes, débit d'ordres, horaires, exposition par devise, coûts vs gains, plafond de lots, autorisations, arrêt d'urgence |
+| `aegis-protocol` | 4 + 12 + 4 | trames, HMAC, poignée de main, anti-rejeu, compatibilité MQL5 (protocole 1.0 et 1.1) |
+| `aegis-market` | 18 | bougies, indicateurs (EMA, RSI, ATR, Bollinger, niveaux pivots), régimes, qualité |
+| `aegis-strategy` | 6 + 14 | 9 stratégies (un scénario construit par stratégie), absence de regard vers le futur, validation des paramètres |
+| `aegis-backtest` | 5 + 12 | coûts, reproductibilité, segments, walk-forward |
+| `aegis-learning` | 12 | variables, inférence, portail, dérive, parité Python/Rust |
+| `aegis-probability` | 10 | triple barrière (spread, pessimisme), IRLS (coefficients retrouvés), Platt, Brier/log loss/ECE, marché aléatoire ⇒ aucun apport des variables, momentum planté ⇒ détecté et calibré (ECE 0,012), reproductibilité |
+| `aegis-news` | 5 (+1 réseau) | lecture du calendrier, fuseaux, entrées mal formées, fenêtres, calendrier indisponible ≠ calme |
+| `aegis-shadow` | 5 | champion/challengers sur les mêmes bougies, signaux refusés suivis sans regard vers le futur, entrées/sorties prématurées, évaluation historique, restauration, tâche indépendante |
+| `aegis-execution` | 10 | cycle de vie, idempotence, délais, état inconnu, réconciliation |
+| `aegis-simterminal` | 6 | broker simulé |
+| `aegis-client` | 1 | refus des adresses non sûres, épinglage obligatoire |
+| `aegis-core` | 7 + 18 (+1 capacité) | configuration, performance (calendrier, ratios, dégradation) ; **bout en bout** avec le vrai protocole TCP et le simulateur : cycle complet signal → risque → ordre → exécution → clôture → réconciliation → journal → objectif → performance ; MONITOR n'exécute rien ; rejet et exécution partielle ; acquittement perdu ; requête perdue ; terminaux non authentifiés et rejeu ; déconnexion et données périmées ; arrêt d'urgence et redémarrage ; drawdown ; LIVE désactivé ; configuration persistée ; backtests ; panne de base ; modèles de probabilité (versions, restriction aux données synthétiques, retour arrière, redémarrage) ; **actualité à fort impact ⇒ entrée suspendue** ; **Shadow indépendant**, promotion refusée sans preuves, paramètres persistés ; heartbeat, sauvegardes automatiques avec rotation, alertes |
+| `aegisd` | 5 + 1 + 1 | chemins confinés, unité systemd, certificat (création unique, droits 0600) ; API : jeton obligatoire ; **API sur vrai TLS** avec le client épinglé : empreinte, résumé, sections, commandes génériques, `shutdown` interdit, chemin `..` interdit, mauvais certificat refusé, limitation après 10 échecs |
+| `desktop/src-tauri` | compile sans avertissement | — |
+| `desktop` (TypeScript) | `tsc --noEmit` sans erreur | — |
 
-## Bout en bout (`crates/aegis-core/tests/e2e.rs`)
+## 2. Compilation
 
-Le vrai moteur écoute sur un port TCP ; le **simulateur (adaptateur de test)** s'y connecte par
-le vrai protocole. Ce n'est pas une connexion à un broker.
+| Cible | Résultat | Preuve |
+|---|---|---|
+| Moteur macOS arm64 (`cargo build --release -p aegisd`) | **Vérifié** | binaire 13,5 Mo, lancé (§ 5) |
+| AEGIS Desktop macOS arm64 (`npx tauri build --bundles app`) | **Vérifié** | `AEGIS.app` 21,5 Mo avec `aegisd` embarqué dans `Contents/MacOS/`, lancé |
+| Moteur Windows x64, Linux x64 | **NON VÉRIFIÉ** | aucune machine Windows/Linux ; job CI `server` prêt, jamais exécuté (pas de dépôt distant) |
+| Installateurs Windows (.exe NSIS, .msi), Linux (.deb, .rpm, AppImage) | **NON VÉRIFIÉ** | job CI `desktop` prêt, jamais exécuté |
+| Service Windows (`windows-service`) | **NON VÉRIFIÉ** | code compilé seulement sous Windows |
+| Connecteur MQL5 | **NON VÉRIFIÉ** | pas de MetaEditor sous macOS ; job CI `mql5` prêt |
 
-| Test | Scénario |
+## 3. Capacité (2 000 transactions par jour)
+
+`cargo test --release -p aegis-core --test capacity -- --ignored --nocapture` : 2 000 entrées
+et 2 000 sorties étalées sur une journée simulée, à travers la vraie chaîne logicielle
+(évaluation du risque, décision enregistrée, autorisation signée à usage unique, ordre et
+commande persistés en SQLite WAL `synchronous=FULL`, trames HMAC scellées et vérifiées des deux
+côtés, exécution par le broker **simulé**, confirmation, comptabilité).
+
+| Mesure | Valeur observée |
 |---|---|
-| `full_cycle_signal_risk_order_fill_close_reconcile` | Les 15 étapes de la spécification : démarrage, connexion, prix, analyse, signal, coûts, risque, autorisation, ordre exécuté, confirmation, position suivie, base à jour, clôture à la cible, réconciliation, résultat publié. Vérifie aussi que l'objectif journalier atteint arrête les entrées, que les bougies du simulateur sont stockées « synthetic », et que le journal d'audit est intact. |
-| `monitor_mode_observes_but_never_trades` | En MONITOR le signal est évalué et expliqué, mais aucun ordre, position ni commande n'existe ; les actions manuelles sont refusées. |
-| `research_stage_and_missing_evidence_block_execution` | Stratégie au stade Recherche ⇒ rejet. Sans preuve hors échantillon ⇒ promotion refusée et espérance « non calculable ». |
-| `broker_rejection_and_partial_fill_are_reported_as_they_happened` | Rejet du broker et exécution partielle rapportés tels quels. |
-| `lost_acknowledgement_is_unknown_until_reconciliation_finds_the_position` | Confirmation perdue ⇒ jamais « exécuté » par supposition ; la réconciliation retrouve la vérité. |
-| `lost_request_ends_as_not_executed` | Requête perdue ⇒ `unknown` puis `not_executed`. |
-| `unauthenticated_terminals_and_replayed_frames_are_rejected` | Mauvaise clé, données brutes, second terminal, trame rejouée ⇒ refus, session fermée, audit. |
-| `disconnection_and_stale_data_are_detected_and_block_entries` | Prix figés signalés ; coupure réseau détectée ; reconnexion. |
-| `kill_switch_blocks_entries_survives_restart_and_needs_manual_reset` | Arrêt d'urgence, persistance après redémarrage, phrase de réinitialisation, retour en MONITOR. |
-| `drawdown_triggers_the_emergency_stop_automatically` | Drawdown maximal ⇒ arrêt d'urgence automatique. |
-| `live_auto_is_off_by_default_and_cannot_be_enabled_casually` | LIVE AUTO refusé par défaut, et toujours refusé avec le simulateur. |
-| `risk_configuration_is_validated_persisted_and_restored` | Limites invalides refusées ; limites valides conservées après redémarrage. |
-| `backtests_are_reproducible_stored_and_feed_the_evidence` | Deux backtests identiques ⇒ résultats identiques ; export du jeu de données ; sauvegarde. |
-| `database_failure_blocks_entries_and_is_reported` | Base verrouillée ⇒ entrées bloquées, signalé, reprise automatique. |
+| Durée totale | 1,66 s |
+| Allers-retours complets par seconde | 1 208 |
+| Latence d'un aller-retour (entrée + sortie) | médiane 0,76 ms ; 99 % 2,47 ms ; max 4,76 ms |
+| Décision de risque | médiane 7 µs |
+| Ordres en base | 2 000 ; transactions clôturées 2 000 |
+| Coût de 2 000 allers-retours à 0,01 lot | 300 USD (spread 160, commission 140) |
 
-## Interface (`crates/aegis-control/tests/ui.rs`)
+**Lecture.** 2 000 transactions par jour représentent une transaction toutes les 43 s : le
+traitement propre d'AEGIS n'est pas une limite. **Non mesuré** : latence réseau vers MT5 et
+temps d'exécution du broker (seul un compte démo réel peut les mesurer). La dernière ligne
+illustre l'objectif « micro-gains » : un aller-retour à 0,01 lot coûte environ 0,15 USD ; un
+gain brut de 0,05 à 0,15 USD sur ce volume est entièrement absorbé. C'est pourquoi chaque
+entrée exige une espérance **nette** positive.
 
-- Sans terminal : les 9 valeurs inconnues du tableau de bord affichent « Indisponible », jamais
-  un nombre inventé ; les 18 pages se dessinent.
-- Avec le moteur réel + simulateur, après une transaction complète, un backtest et un arrêt
-  d'urgence : le tableau de bord affiche exactement les valeurs du moteur (solde, équité, P&L
-  du jour, mode) ; les 18 pages se dessinent sur cet état.
-- Le rendu est fait **sans fenêtre** (contexte egui hors écran). L'application a par ailleurs
-  été lancée réellement : processus actif, moteur à l'écoute, fichiers créés. **L'aspect visuel
-  n'a pas été inspecté** (capture d'écran refusée par le système).
+Pendant ce test, le moteur de risque a d'abord bloqué les entrées après 134 allers-retours
+(perte journalière de 2 % atteinte par les seuls coûts) : comportement correct, la limite a été
+élargie pour la mesure.
 
-## Chaîne IA (exécutée manuellement, résultat dans `models/`)
+## 4. Essais manuels réalisés
 
-```
-aegisd generate-synthetic --symbol EURUSD.sim --tf M15 --bars 30000 --seed 42
-aegisd export-dataset --symbol EURUSD.sim --tf M15 --origin synthetic --horizon 4 --out dataset.csv
-uv run train.py --dataset dataset.csv --out model.json
-aegisd verify-model --file model.json
-```
-
-Résultat obtenu : 29 896 échantillons, 5 plis walk-forward, AUC hors échantillon 0,6016,
-Brier 0,2424 (référence 0,2500), ECE 0,0071, **écart d'inférence Rust/Python 1,1e-16**,
-**portail : NON PASSÉ** (données synthétiques). L'AUC de 0,60 reflète la dérive construite
-dans le générateur synthétique ; elle ne dit rien d'un marché réel.
-
-## Analyse statique
-
-`cargo clippy --workspace --all-targets` : aucune erreur ; il reste une dizaine de remarques de
-style (nombre d'arguments, types longs), sans incidence sur le comportement.
-
-## Défauts trouvés par les tests pendant le développement (et corrigés)
-
-1. **Réconciliation** : une position ouverte puis clôturée avant l'arrivée de toute
-   confirmation était déclarée « non exécutée ». Les clôtures portent désormais l'identifiant
-   de l'ordre d'origine, ce qui prouve l'exécution.
-2. **Réseau** : la lecture d'une trame pouvait perdre des octets quand elle était interrompue
-   par une autre tâche, coupant la session par intermittence. Le lecteur conserve maintenant
-   la trame partielle.
-3. **Publication** : la réponse à une commande pouvait arriver avant que l'état publié ne
-   reflète son effet.
-4. **Base de données** : une base verrouillée figeait le moteur. La sonde tourne désormais à
-   part et les écritures non essentielles sont suspendues.
-5. **Arrêt d'`aegisd`** : avec l'API HTTP activée, Ctrl-C quittait sans arrêter le moteur ni
-   refermer la base (trouvé en essayant le binaire de livraison). L'arrêt passe désormais par
-   une référence partagée, et la fermeture replie le journal d'écriture dans `aegis.db`.
-
-## Binaires de livraison (essai manuel, macOS Apple Silicon)
-
-`cargo build --release -p aegis-control -p aegisd` : réussi. Puis, sur ces binaires :
-
-- `aegisd run --simulator` avec l'API activée : moteur en **MONITOR**, simulateur connecté
-  (≈ 800 trames reçues en 8 s), 6 composants sur 8 à « ok » (Exécution et IA « inactive »,
-  comme attendu en MONITOR sans modèle), `/api/v1/health` 200, `/api/v1/state` 401 sans
-  jeton et 200 avec ; Ctrl-C : code de sortie 0, il ne reste que `aegis.db` ;
-- `aegisd verify-audit` sur cette base : chaîne d'audit intacte, intégrité « ok » ;
-- `aegis` (application de bureau) : le processus reste actif et le port du pont écoute. La
-  fenêtre n'a pas été inspectée.
-
-## Archive source
-
-`dist/aegis-0.1.0-source.zip` a été décompressée dans un dossier vide et `./scripts/test.sh`
-y a été relancé : **159 réussis, 0 échoué**. L'archive contient donc tout ce qu'il faut pour
-compiler et tester (les bibliothèques sont téléchargées par `cargo` à la première
-compilation).
-
-## NON VÉRIFIÉ
-
-| Élément | Raison |
+| Essai | Résultat observé |
 |---|---|
-| Compilation du connecteur MQL5 | Pas de MetaEditor (Windows) sur la machine de développement |
-| Connexion à un vrai compte MT5 de démonstration, exécution réelle chez un broker | Pas de terminal MT5 disponible |
-| Compilation et exécution sous Windows et sous Linux | Machine de développement : macOS uniquement |
-| Aspect visuel de l'application | Capture d'écran refusée par macOS dans cet environnement |
-| LIVE AUTO sur un compte réel | Volontairement non testé |
-| Tenue sur plusieurs jours, charge réelle de ticks | Non mesurée |
+| `aegisd run --simulator` + API HTTPS | santé `ok`, résumé : mode MONITOR, terminal `simulator`, CPU/RAM mesurés ; empreinte de `aegisd pairing` **identique** à celle mesurée par `openssl s_client` ; arrêt propre par Ctrl-C |
+| Calendrier économique réel (`cargo test -p aegis-news -- --ignored`) | 125 événements lus en HTTPS depuis la source par défaut |
+| Entraînement P(TP avant SL) en release, 8 000 bougies M1 synthétiques | 1,4 s ; ACHAT et VENTE « modèle complet », Brier 0,216 / 0,215, ECE 0,004 / 0,009, 105 520 observations hors échantillon par sens |
+| Moteur 10 min en DEMO AUTO sur le simulateur | décisions expliquées ; refus observés et justifiés : stade Recherche, exposition (lots trop gros sur M1 — d'où l'ajout de `max_lots_per_trade`), P(TP avant SL) 42,7 % < 75 %, espérance nette −21,73 USD après 21,47 USD de coûts |
+| Interface | 10 pages rendues avec les **vraies réponses** du moteur ci-dessus (mode aperçu, Chrome sans tête) : tableau de bord, performance, positions, décisions, stratégies, probabilités (diagrammes de fiabilité), Shadow, actualités, configuration, système. La fenêtre native a été lancée mais n'a pas pu être photographiée (session macOS verrouillée) |
 
-Critères de livraison de la spécification : voir `PROJECT_STATUS.md`.
+## 5. Ce qui reste à vérifier (avec la procédure)
+
+1. **Pipeline CI** (Windows, Linux) : pousser le dépôt sur GitHub et lancer le workflow `build`
+   — compilation, tests, installateurs, installation/désinstallation automatiques, compilation
+   MQL5. Reporter les résultats ici.
+2. **Connecteur sur compte démo** : `docs/MT5_CONNECTOR.md`, § « Vérification sur compte démo ».
+3. **VPS** : installation du service, redémarrage après arrêt forcé, appairage distant
+   (`docs/VPS_DEPLOYMENT.md`).
+4. **Données réelles** : collecter l'historique broker, entraîner les modèles, backtester —
+   aucune stratégie ni aucun modèle n'a encore été évalué sur un marché réel.

@@ -56,5 +56,5 @@ export const api = {
   summary: () => call<Json>("api_get", { path: "/api/v1/summary" }),
   command: (type: string, args?: Json) => call<string>("api_command", { command: args === undefined ? { type } : { type, args } }),
   localStatus: () => call<LocalStatus>("local_engine_status"),
-  localStart: () => call<Json>("local_engine_start"),
+  localStart: (simulator = false) => call<Json>("local_engine_start", { simulator }),
 };

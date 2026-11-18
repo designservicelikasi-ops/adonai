@@ -1,88 +1,88 @@
-# Architecture d'AEGIS
+# Architecture d'AEGIS (0.2)
 
-## Vue d'ensemble
+## Trois composants
 
 ```
- MetaTrader 5 (Windows)                         Moteur AEGIS (Rust : macOS / Linux / Windows)
-┌─────────────────────────┐   TCP, 1 trame/ligne   ┌───────────────────────────────────────────────┐
-│ AegisConnector.mq5      │  HMAC-SHA256 + session │ bridge  → engine (boucle d'événements unique)  │
-│  - prix, compte,        │ ─────────────────────▶ │   market → strategy → (learning) → risk        │
-│    positions, clôtures  │ ◀───────────────────── │                         │                      │
-│  - exécute les ordres   │   ordres autorisés     │                    execution ──▶ bridge        │
-│    authentifiés         │                        │   data (SQLite, audit chaîné)                  │
-└─────────────────────────┘                        │   view (état publié 4×/s)                      │
-                                                   └───────────────┬───────────────────────────────┘
-                                                                   │ même processus
-                                              ┌────────────────────┴───────────┐
-                                              │ aegis (application de bureau)  │   ou  aegisd (sans interface + API HTTP)
-                                              └────────────────────────────────┘
+ MetaTrader 5 (Windows)                AEGIS ENGINE — aegisd (Windows / Linux, VPS)              AEGIS DESKTOP (Tauri 2)
+┌───────────────────────┐ TCP, HMAC ┌──────────────────────────────────────────────────────┐ HTTPS ┌─────────────────────┐
+│ AegisConnector.mq5    │──────────▶│ bridge → engine (boucle d'événements unique)         │◀─────▶│ React + TypeScript  │
+│ prix, compte,         │◀──────────│  market → strategies → probability → risk → exec     │épinglé│ côté Rust : client  │
+│ positions, clôtures,  │ ordres    │  positions (Position Intelligence), goal, journal    │+jeton │ aegis-client        │
+│ exécute les ordres    │ autorisés │  news (tâche), shadow (tâche indépendante)           │       │ (épinglage TLS)     │
+│ authentifiés          │           │  data (SQLite, audit chaîné), ops (heartbeat,        │       │ moteur local        │
+└───────────────────────┘           │  sauvegardes, alertes), API Axum + rustls, CPU/RAM   │       │ détaché (optionnel) │
+                                    └──────────────────────────────────────────────────────┘       └─────────────────────┘
 ```
 
-## Les modules (un crate chacun, dans `crates/`)
+- Le moteur est autonome : il tourne en service (Windows SCM ou systemd), sans interface.
+- Le desktop n'est qu'un client : le fermer n'arrête ni le moteur ni les positions.
+- La liaison MT5 reste locale (même VPS) ou dans un tunnel ; seule l'API est exposée, chiffrée
+  et épinglée.
 
-| Crate | Rôle | Dépend de |
-|---|---|---|
-| `aegis-types` | Types partagés : instrument, tick, bougie, compte, position, modes | — |
-| `aegis-data` | Stockage SQLite (SQLx), migrations, audit chaîné, sauvegarde/restauration, rétention | types |
-| `aegis-risk` | **Moteur de risque** : taille, coûts, espérance nette (micro-profits), limites, autorisations, arrêt d'urgence | types |
-| `aegis-protocol` | Protocole v1 : trames, HMAC, poignée de main, session anti-rejeu, lecture bornée | types |
-| `aegis-market` | Bougies depuis les ticks, indicateurs, régimes, sessions, qualité des données | types |
-| `aegis-strategy` | Cadre de stratégies + EMA, RSI, breakout ; cycle de vie (recherche → démo → réel) | types, market |
-| `aegis-backtest` | Backtester, métriques, découpage chronologique, walk-forward, CSV, générateur synthétique | strategy |
-| `aegis-learning` | Variables explicatives, inférence, portail de validation, dérive, suivi en direct | market |
-| `aegis-execution` | Cycle de vie des ordres, idempotence, délais, réconciliation | data, risk, protocol |
-| `aegis-core` | Moteur : configuration, orchestration, pont réseau, décisions, supervision, vue publiée | tous |
-| `aegis-simterminal` | **Adaptateur de test** : terminal + broker simulés parlant le vrai protocole | protocol, backtest |
-| `aegis-control` | Application de bureau (egui/eframe), binaire `aegis` | core, simterminal |
-| `aegisd` | Moteur sans interface, API HTTP (Axum), outils en ligne de commande | core |
+## Modules (un crate chacun, dans `crates/`)
 
-Hors Rust : `mt5/` (connecteur MQL5), `research/` (entraînement Python).
+| Crate | Rôle |
+|---|---|
+| `aegis-types` | types partagés : instrument, tick, bougie, compte, position, transaction, modes |
+| `aegis-data` | SQLite (SQLx) : migrations, audit chaîné, ordres, décisions, **journal des transactions**, **versions de modèles de probabilité**, **jeux de données**, sauvegarde/restauration |
+| `aegis-market` | bougies à partir des ticks, indicateurs (EMA, RSI, ATR, Donchian, Bollinger, pivots), régimes, sessions, qualité des données |
+| `aegis-strategy` | 9 stratégies : EMA crossover, RSI momentum, suivi de tendance, breakout, pullback, retour à la moyenne RSI, retour à la moyenne Bollinger, rejet S/R, expansion de volatilité ; cycle de vie |
+| `aegis-probability` | **Probability Engine** : P(TP avant SL), triple barrière, régression logistique, walk-forward, calibration, Brier/log loss/fiabilité |
+| `aegis-risk` | **Risk Engine** : taille, coûts, espérance nette, limites, seuils de probabilité, **Daily Goal Manager**, **Position Intelligence**, autorisations signées, arrêt d'urgence |
+| `aegis-execution` | cycle de vie des ordres, idempotence, délais, état inconnu, réconciliation |
+| `aegis-protocol` | protocole MT5 : trames, HMAC, poignée de main, session anti-rejeu |
+| `aegis-backtest` | backtest avec coûts, segments, walk-forward, CSV, générateur synthétique |
+| `aegis-learning` | variables explicatives (source unique), filtre logistique Python, dérive |
+| `aegis-news` | **News Intelligence** : calendrier, recommandation autorisé / prudent / suspendu |
+| `aegis-shadow` | **Shadow Intelligence** : champion/challenger papier, opportunités manquées, analyse des sorties ; **aucune dépendance** vers l'exécution |
+| `aegis-core` | moteur : configuration, orchestration, décisions (`decide.rs`), positions, intelligence (`intel.rs`), performance, lien Shadow, ops, état publié |
+| `aegis-simterminal` | **adaptateur de test** : terminal et broker simulés parlant le vrai protocole |
+| `aegis-client` | client de l'API avec épinglage du certificat (utilisé par le desktop) |
+| `aegisd` | binaire du moteur : service, API Axum + TLS, surveillance système, outils en ligne de commande |
 
-Il n'y a aucune dépendance circulaire : le graphe ci-dessus est un arbre orienté vers `aegis-core`.
+Hors workspace : `desktop/` (Tauri 2 : `src/` React, `src-tauri/` Rust), `mt5/` (MQL5),
+`research/` (Python), `packaging/` (installation des services).
+
+Les dépendances interdites sont des erreurs de compilation : la stratégie ne voit ni le risque
+ni l'exécution ; le Shadow ne voit ni l'exécution ni le protocole ; une entrée ne peut être
+construite qu'à partir d'une `Authorization` que seul `aegis-risk` sait signer.
 
 ## Le chemin d'une décision
 
-1. **Tick** reçu du terminal → `MarketEngine::on_tick` valide le tick, met à jour les bougies.
-2. Une **bougie se clôture** sur une unité de temps de signal → chaque stratégie active reçoit
-   les 300 dernières bougies clôturées (jamais la bougie en cours, jamais le futur).
-3. Une stratégie renvoie une **intention d'entrée** (sens, distance de stop, distance de cible, raison).
-4. Le moteur ajoute ses contrôles : base de données disponible, stade de la stratégie compatible
-   avec le mode, régime de marché, qualité des données, pas d'ordre déjà en cours, filtre IA.
-5. La **probabilité de gain** vient du dernier backtest hors échantillon de cette
-   stratégie/instrument/unité (borne basse de Wilson, 30 transactions minimum). Sans elle,
-   l'espérance nette est « non calculable » et l'entrée est refusée.
-6. `RiskEngine::evaluate` calcule la taille, les coûts, l'espérance nette et vérifie toutes les
-   limites. Chaque contrôle est enregistré avec son détail.
-7. La décision est **écrite en base avant tout envoi**. Si l'écriture échoue, rien ne part.
-8. Si tout est passé : `Executor::submit_entry` **consomme** l'autorisation (usage unique,
-   signée, 3 s de validité), enregistre l'ordre, et la trame part vers le terminal.
-9. Le connecteur revérifie (authentification, expiration, doublon, volume, écart de prix) puis
-   appelle le broker et **rapporte ce que le broker a répondu**.
-10. Le moteur met à jour l'ordre. Sans réponse : état `unknown`, tranché par la réconciliation
-    (position trouvée, clôture trouvée, ou absence prouvée).
-
-## Principes de sûreté dans le code
-
-- **Un seul point de sortie** vers le terminal (`Engine::send_order`), fermé en mode MONITOR.
-- **Une entrée ne peut être construite qu'à partir d'une autorisation** du moteur de risque
-  (`submit_entry` exige `&mut RiskEngine` et l'autorisation ; le type `Authorization` ne peut
-  pas être signé hors du crate `aegis-risk`).
-- **Échec fermé** : donnée manquante, périmée, incohérente ou non finie ⇒ refus.
-- **Aucune automatisation restaurée** au redémarrage ; l'arrêt d'urgence, lui, est restauré.
-- **Origine des données** (`broker` / `synthetic`) portée par chaque bougie, backtest et modèle.
-
-## Persistance
-
-SQLite en mode WAL, `synchronous=FULL`, clés étrangères actives. Tables : `symbols`, `candles`,
-`account_snapshots`, `strategies`, `decisions`, `orders`, `order_events`, `commands`,
-`positions`, `deals`, `risk_configs`, `model_versions`, `backtest_runs`, `backtest_trades`,
-`audit_log` (ajout seul, chaîné par SHA-256), `kv_state`. Le SQL évite les types propres à
-SQLite pour rester portable vers PostgreSQL.
+1. **Tick** → `MarketEngine` valide, met à jour les bougies et les excursions des positions.
+2. **Bougie clôturée** sur une unité de signal → BUY/SELL de référence recalculés (Entry
+   Intelligence), copie au Shadow, puis chaque stratégie active évalue les 300 dernières
+   bougies (jamais la bougie en cours).
+3. **Intention** (sens, distance de stop, distance de cible, raison).
+4. **Contrôles du moteur** : base disponible, stade de la stratégie, régime, qualité des
+   données, ordre déjà en cours, filtre IA, **actualités**.
+5. **Probabilité** P(TP avant SL) : la plus prudente des sources validées (modèle de scénario
+   calibré, borne de Wilson du backtest hors échantillon). Sans source : refus.
+6. **Risque** : taille (au risque, plafonnée), coûts (spread, commission, slippage, swap,
+   conversion), espérance nette, seuil BUY/SELL, limites (jour, objectif, transactions, pertes
+   consécutives, débit, horaires, exposition globale et par devise, coûts du jour).
+7. **Décision écrite en base avant tout envoi** ; journal préparé.
+8. **Autorisation consommée** (signée, 3 s, usage unique) → ordre persisté → trame.
+9. **Connecteur** : revérifie, exécute, rapporte la réponse du broker.
+10. **Exécution** : `filled` / `rejected` / partiel / `unknown` → réconciliation. Journal :
+    prix exécuté, slippage mesuré.
+11. **Position Intelligence** à chaque bougie : HOLD / SECURE / ADJUST SL / ADJUST TP / CLOSE.
+12. **Clôture** : transaction du broker → comptabilité du jour (brut, net, coûts), objectif,
+    journal (résultat, MFE/MAE), performance, calibration réelle, Shadow.
 
 ## Concurrence
 
-Le moteur est une **boucle d'événements unique** (Tokio) : messages du terminal, commandes de
-l'utilisateur, minuterie. L'état n'est donc jamais modifié par deux tâches à la fois. Les
-calculs longs (backtests) et la sonde de base de données tournent à part et reviennent sous
-forme de messages. L'interface lit un instantané immuable (`EngineView`) publié quatre fois
-par seconde et après chaque commande.
+Boucle d'événements unique (Tokio) pour l'état du moteur. À part, en tâches : réseau MT5,
+calendrier (tâche bloquante), entraînement des probabilités et backtests (`spawn_blocking`),
+sonde de base, Shadow (tâche indépendante recevant des copies par canal borné ; une copie
+perdue est comptée, jamais bloquante), API (Axum), surveillance CPU/RAM (fil dédié).
+L'interface lit un instantané immuable (`EngineView`) publié quatre fois par seconde.
+
+## Persistance
+
+SQLite WAL, `synchronous=FULL`, clés étrangères. Tables : `symbols`, `candles`,
+`account_snapshots`, `strategies`, `decisions`, `orders`, `order_events`, `commands`,
+`positions`, `deals` (avec frais), `risk_configs` (versions), `model_versions`,
+`backtest_runs`, `backtest_trades`, `trade_journal`, `probability_models`, `datasets`,
+`audit_log` (ajout seul, chaîné SHA-256), `kv_state` (comptabilité, arrêt d'urgence, rapport
+Shadow, calendrier, stops initiaux).
