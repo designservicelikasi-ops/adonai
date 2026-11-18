@@ -5,12 +5,13 @@
 # SECRETS : ils ne s'écrivent jamais ici.
 #   - clé partagée moteur <-> MT5 : variable d'environnement AEGIS_SHARED_KEY
 #     (à défaut, AEGIS crée data/shared.key, lisible uniquement par vous) ;
-#   - jeton de l'API HTTP : variable d'environnement AEGIS_API_TOKEN.
+#   - jeton de l'API de contrôle : variable d'environnement AEGIS_API_TOKEN
+#     (à défaut, AEGIS crée data/api.token) ; `aegisd pairing` l'affiche pour AEGIS Desktop.
 
 [engine]
 data_dir = "data"                # base de données, journaux, sauvegardes, clé
 symbols = []                     # instruments autorisés ; vide = ceux envoyés par le connecteur MT5
-signal_timeframes = ["M15"]      # unités de temps sur lesquelles les stratégies sont évaluées
+signal_timeframes = ["M15"]      # unités de temps des stratégies : M1, M5, M15, M30 ou H1
 history_bars = 500               # bougies demandées au terminal à la connexion
 
 [bridge]
@@ -20,9 +21,11 @@ peer_timeout_ms = 10000          # silence du terminal avant coupure
 shared_key_env = "AEGIS_SHARED_KEY"
 
 [api]
-enabled = false                  # API HTTP de contrôle (moteur sans interface, sur un VPS)
-listen = "127.0.0.1:7879"
+enabled = true                   # API de contrôle utilisée par AEGIS Desktop (locale ou distante)
+listen = "127.0.0.1:7879"        # VPS : "0.0.0.0:7879" + pare-feu limité à votre adresse
 token_env = "AEGIS_API_TOKEN"
+tls = true                       # HTTPS, certificat auto-signé épinglé par le desktop (obligatoire hors boucle locale)
+tls_names = []                   # adresses/nom du VPS à inscrire dans le certificat, ex. ["203.0.113.10"]
 
 [risk]
 # Valeurs INITIALES. Dès que vous modifiez les limites dans l'application,
@@ -30,6 +33,7 @@ token_env = "AEGIS_API_TOKEN"
 risk_per_trade_pct = 0.5         # perte maximale par transaction, en % de l'équité
 max_daily_loss_pct = 2.0         # perte nette du jour (réalisé + flottant) qui bloque les entrées
 max_drawdown_pct = 10.0          # recul depuis le plus haut d'équité qui déclenche l'arrêt d'urgence
+max_lots_per_trade = 0.0         # plafond de taille par transaction (lots) pour le micro-trading ; 0 = taille au risque seule
 max_open_positions = 3
 max_positions_per_symbol = 1
 max_notional_leverage = 5.0      # exposition notionnelle totale / équité
@@ -85,6 +89,44 @@ min_auc_mean = 0.55
 min_auc_each_fold = 0.5
 min_brier_improvement = 0.002
 max_ece = 0.05
+
+[probability]                    # Probability Engine : P(TP avant SL), entraîné à la demande
+tp_grid = [0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]   # cibles couvertes, en ATR
+sl_grid = [0.5, 1.0, 1.5, 2.0, 3.0]                   # stops couverts, en ATR
+horizon_bars = 60                # au-delà, un scénario non conclu compte comme un échec
+stride = 2
+folds = 5                        # walk-forward
+ridge = 1.0
+min_samples = 2000               # observations hors échantillon minimales
+min_brier_skill = 0.001          # gain de Brier exigé du modèle complet sur la référence
+max_ece = 0.05                   # erreur de calibration maximale
+display_tp_atr = 0.5             # scénario affiché « P(BUY) / P(SELL) » sur le tableau de bord
+display_sl_atr = 1.0
+
+[news]                           # News Intelligence (calendrier économique)
+enabled = true
+sources = [{ name = "faireconomy", url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json" }]
+refresh_minutes = 60
+high_before_min = 30             # suspension autour d'une annonce à fort impact
+high_after_min = 30
+medium_before_min = 10           # prudence autour d'une annonce moyenne
+medium_after_min = 10
+caution_probability_margin = 0.05   # en prudence : probabilité exigée = seuil + 5 points
+suspend_when_unavailable = false    # calendrier injoignable : true = suspendre, false = prudence
+
+[shadow]                         # Shadow Intelligence (papier, champion / challenger)
+enabled = true
+variants = true                  # challengers : variantes TP/SL autour de chaque stratégie
+forward_min_trades = 30
+commission_per_lot_round_turn = 7.0   # remplacé par la valeur de la configuration de risque
+missed_horizon_bars = 200
+
+[ops]                            # fonctionnement sans surveillance (VPS)
+heartbeat_file = true            # data/heartbeat mis à jour toutes les 10 s
+backup_interval_hours = 24       # sauvegarde automatique ; 0 = désactivée
+backup_keep = 14                 # sauvegardes automatiques conservées
+alert_webhook_url = ""           # https://… recevant les alertes critiques en JSON (facultatif)
+disconnect_alert_s = 60          # alerte si MT5 est déconnecté en mode automatique
 
 [safety]
 live_trading_enabled = false     # LIVE AUTO est impossible tant que ceci vaut false

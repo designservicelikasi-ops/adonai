@@ -21,6 +21,9 @@ pub struct RiskConfig {
     pub max_daily_loss_pct: f64,
     /// The emergency stop engages when equity falls this far below its peak, in %.
     pub max_drawdown_pct: f64,
+    /// Hard cap on the size of one trade, in lots (micro-trading). 0 = only the risk-based size.
+    /// It can only REDUCE the size computed from `risk_per_trade_pct`, never increase it.
+    pub max_lots_per_trade: f64,
     pub max_open_positions: usize,
     pub max_positions_per_symbol: usize,
     /// Total open notional (account currency) divided by equity.
@@ -75,6 +78,7 @@ impl Default for RiskConfig {
             risk_per_trade_pct: 0.5,
             max_daily_loss_pct: 2.0,
             max_drawdown_pct: 10.0,
+            max_lots_per_trade: 0.0,
             max_open_positions: 3,
             max_positions_per_symbol: 1,
             max_notional_leverage: 5.0,
@@ -130,6 +134,7 @@ impl RiskConfig {
         range("max_spread_points", self.max_spread_points, 0.0, 100_000.0, "must be >= 0")?;
         range("max_slippage_points", self.max_slippage_points, 0.0, 10_000.0, "must be >= 0")?;
         range("min_net_expected_profit", self.min_net_expected_profit, 0.0, 1e9, "must be >= 0")?;
+        range("max_lots_per_trade", self.max_lots_per_trade, 0.0, 1_000.0, "must be within 0..1000 lots")?;
         range("buy_min_probability", self.buy_min_probability, 0.5, 0.99, "must be within 0.50..0.99")?;
         range("sell_min_probability", self.sell_min_probability, 0.5, 0.99, "must be within 0.50..0.99")?;
         range("max_currency_exposure", self.max_currency_exposure, 0.1, 100.0, "must be within 0.1..100")?;

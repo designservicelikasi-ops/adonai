@@ -406,6 +406,9 @@ impl RiskEngine {
                 if let Some(req) = p.requested_volume {
                     volume = volume.min(spec.normalize_volume(req));
                 }
+                if cfg.max_lots_per_trade > 0.0 {
+                    volume = volume.min(spec.normalize_volume(cfg.max_lots_per_trade));
+                }
                 out.volume = volume;
                 out.risk_amount = volume * per_lot_loss;
                 let sized = volume > 0.0 && spec.is_volume_valid(volume);

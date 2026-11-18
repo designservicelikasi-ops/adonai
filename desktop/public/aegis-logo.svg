@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F6DE92"/>
+      <stop offset="0.45" stop-color="#D9AE3C"/>
+      <stop offset="1" stop-color="#8F6E10"/>
+    </linearGradient>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#18222E"/>
+      <stop offset="1" stop-color="#070A0E"/>
+    </linearGradient>
+    <linearGradient id="rise" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22B47A"/>
+      <stop offset="1" stop-color="#7CF2C2"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="#0A0E13"/>
+  <!-- Shield -->
+  <path d="M512 92 L846 206 C846 520 742 760 512 922 C282 760 178 520 178 206 Z" fill="url(#gold)"/>
+  <path d="M512 140 L800 238 C798 512 708 722 512 866 C316 722 226 512 224 238 Z" fill="url(#field)"/>
+  <!-- The A -->
+  <path d="M512 262 L690 708 L612 708 L512 438 L412 708 L334 708 Z" fill="url(#gold)"/>
+  <!-- Crossbar: a rising equity line -->
+  <path d="M352 640 L452 560 L520 600 L672 470" fill="none" stroke="url(#rise)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="672" cy="470" r="30" fill="#7CF2C2"/>
+</svg>

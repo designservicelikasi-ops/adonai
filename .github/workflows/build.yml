@@ -1,27 +1,243 @@
-# Compilation et tests sur Linux, Windows et macOS.
-# NON VÉRIFIÉ : ce fichier n'a jamais été exécuté (le projet a été développé sur macOS uniquement).
+# AEGIS — reproducible builds on NATIVE runners (no cross-compilation).
+#
+#   test        cargo test on Linux, Windows and macOS
+#   server      release engine (aegisd) for Linux x64 and Windows x64
+#   desktop     Tauri 2 installers: Windows (.exe NSIS, .msi WiX), Linux (.deb, .rpm, AppImage)
+#   mql5        compile the MT5 connector with MetaEditor (Windows runner)
+#   release     gather everything into the RELEASES/ layout (tags v*)
+#
+# Every job uploads its logs. Results are only claimed in TEST_REPORT.md once a run
+# has actually been observed.
 name: build
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "22"
+
 jobs:
-  build:
+  test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-22.04, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Bibliothèques système (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libx11-dev libgl1-mesa-dev
-      - run: cargo test --workspace --all-features
-      - run: cargo build --release -p aegis-control -p aegisd
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests (workspace)
+        shell: bash
+        run: cargo test --workspace --all-features 2>&1 | tee test-${{ matrix.os }}.log
+      - name: Clippy
+        shell: bash
+        run: rustup component add clippy && cargo clippy --workspace --all-targets 2>&1 | tee clippy-${{ matrix.os }}.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-test-${{ matrix.os }}
+          path: "*.log"
+
+  server:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            exe: aegisd
+            label: linux-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: aegisd.exe
+            label: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build aegisd (release)
+        shell: bash
+        run: cargo build --release -p aegisd 2>&1 | tee build-server-${{ matrix.label }}.log
+      - name: Smoke test (simulator, TLS API)
+        shell: bash
+        run: |
+          set -e
+          mkdir -p smoke
+          printf '[engine]\ndata_dir = "smoke/data"\n[api]\nlisten = "127.0.0.1:17879"\n[bridge]\nlisten = "127.0.0.1:17878"\n[news]\nenabled = false\n' > smoke/aegis.toml
+          ./target/release/${{ matrix.exe }} --config smoke/aegis.toml run --simulator > smoke/run.log 2>&1 &
+          sleep 15
+          curl -sk https://127.0.0.1:17879/api/v1/health | tee smoke/health.json
+          ./target/release/${{ matrix.exe }} --config smoke/aegis.toml pairing | sed 's/jeton .*/jeton (masqué)/' | tee smoke/pairing.txt
+          grep -q '"status":"ok"' smoke/health.json
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p out/aegis-server-${{ matrix.label }}/config out/aegis-server-${{ matrix.label }}/docs
+          cp target/release/${{ matrix.exe }} out/aegis-server-${{ matrix.label }}/
+          cp config/aegis.example.toml out/aegis-server-${{ matrix.label }}/config/
+          cp README.md docs/VPS_DEPLOYMENT.md docs/CONFIGURATION.md docs/SECURITY.md out/aegis-server-${{ matrix.label }}/docs/ 2>/dev/null || true
+          cp -r packaging out/aegis-server-${{ matrix.label }}/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
-          name: aegis-${{ matrix.os }}
+          name: aegis-server-${{ matrix.label }}
+          path: out/aegis-server-${{ matrix.label }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-server-${{ matrix.label }}
           path: |
-            target/release/aegis
-            target/release/aegisd
-            target/release/aegis.exe
-            target/release/aegisd.exe
+            *.log
+            smoke/*.log
+            smoke/*.json
+            smoke/pairing.txt
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            exe: aegisd
+            label: linux-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: aegisd.exe
+            label: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: System libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev rpm
+      - name: Engine bundled with the application
+        shell: bash
+        run: |
+          cargo build --release -p aegisd
+          mkdir -p desktop/src-tauri/binaries
+          cp target/release/${{ matrix.exe }} desktop/src-tauri/binaries/aegisd-${{ matrix.target }}$([ "${{ runner.os }}" = "Windows" ] && echo .exe || true)
+      - name: Frontend
+        working-directory: desktop
+        run: npm ci && npm run typecheck
+      - name: Tauri build (installers)
+        working-directory: desktop
+        shell: bash
+        run: npx tauri build 2>&1 | tee ../build-desktop-${{ matrix.label }}.log
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p out
+          B=desktop/src-tauri/target/release/bundle
+          find $B -maxdepth 2 -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} out/ \;
+          ls -la out
+          (cd out && sha256sum * > SHA256SUMS-${{ matrix.label }}.txt)
+      - name: Install test (Linux .deb)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get install -y ./out/*.deb
+          dpkg -L aegis | tee install-files-linux.log
+          test -x /usr/bin/aegis-desktop -o -x /usr/bin/aegis || (echo "installed binary not found" && exit 1)
+          test -x /usr/bin/aegisd && /usr/bin/aegisd --config /tmp/none.toml print-config > /dev/null
+          sudo apt-get remove -y aegis | tee uninstall-linux.log
+      - name: Install test (Windows NSIS, silent)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem out -Filter *-setup.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'AEGIS'
+          Get-ChildItem -Recurse $dir | Select-Object FullName | Out-File install-files-windows.log
+          if (!(Test-Path (Join-Path $dir 'aegisd.exe'))) { throw "aegisd.exe not installed next to the application" }
+          & (Join-Path $dir 'aegisd.exe') --config none.toml print-config | Out-Null
+          $un = Join-Path $dir 'uninstall.exe'
+          if (Test-Path $un) { Start-Process -FilePath $un -ArgumentList '/S' -Wait }
+          "uninstalled" | Out-File uninstall-windows.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aegis-desktop-${{ matrix.label }}
+          path: out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-desktop-${{ matrix.label }}
+          path: "*.log"
+
+  mql5:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MetaTrader 5 (silent)
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri 'https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe' -OutFile mt5setup.exe
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList '/auto' -Wait
+          $me = Get-ChildItem 'C:\Program Files' -Recurse -Filter metaeditor64.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (!$me) { throw "MetaEditor not found after installation" }
+          "METAEDITOR=$($me.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Compile connector and self-test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          foreach ($f in @('AegisConnector.mq5', 'AegisSelfTest.mq5')) {
+            $src = Join-Path $PWD "mt5\$f"
+            $log = Join-Path $PWD "out\$f.log"
+            Start-Process -FilePath $env:METAEDITOR -ArgumentList "/compile:`"$src`"", "/include:`"$PWD\mt5`"", "/log:`"$log`"" -Wait
+            Get-Content $log | Write-Output
+            if (-not (Select-String -Path $log -Pattern ' 0 errors' -Quiet)) { throw "$f did not compile" }
+          }
+          Copy-Item mt5\*.ex5 out\
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aegis-connector-mt5
+          path: out
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, server, desktop, mql5]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: RELEASES layout (only files that were really produced)
+        run: |
+          set -e
+          mkdir -p RELEASES/windows RELEASES/linux RELEASES/server/windows RELEASES/server/linux RELEASES/connector RELEASES/documentation RELEASES/release-notes
+          cp artifacts/aegis-desktop-windows-x64/*.exe artifacts/aegis-desktop-windows-x64/*.msi RELEASES/windows/ || true
+          cp artifacts/aegis-desktop-linux-x64/*.AppImage artifacts/aegis-desktop-linux-x64/*.deb artifacts/aegis-desktop-linux-x64/*.rpm RELEASES/linux/ || true
+          cp -r artifacts/aegis-server-windows-x64/* RELEASES/server/windows/
+          cp -r artifacts/aegis-server-linux-x64/* RELEASES/server/linux/
+          cp artifacts/aegis-connector-mt5/*.ex5 RELEASES/connector/ || true
+          cp mt5/*.mq5 mt5/*.mqh RELEASES/connector/
+          cp README.md docs/*.md RELEASES/documentation/
+          cp CHANGELOG.md RELEASES/release-notes/
+          find RELEASES -type f -size 0 -delete
+          (cd RELEASES && find . -type f ! -name SHA256SUMS.txt -exec sha256sum {} \; > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AEGIS-RELEASES-${{ github.ref_name }}
+          path: RELEASES

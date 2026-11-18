@@ -577,6 +577,21 @@ fn invalid_configurations_are_refused() {
 }
 
 #[test]
+fn lot_cap_only_reduces_the_size() {
+    let w = World::new();
+    let free = engine().evaluate(&proposal("a"), &w.ctx());
+    assert!(free.approved && free.volume > 0.05, "{}", free.volume);
+    let mut capped = RiskEngine::new(RiskConfig { max_lots_per_trade: 0.05, ..test_config() }).unwrap();
+    let a = capped.evaluate(&proposal("b"), &w.ctx());
+    assert!(a.approved);
+    assert!((a.volume - 0.05).abs() < 1e-9, "{}", a.volume);
+    assert!(a.risk_amount < free.risk_amount, "smaller size, smaller risk");
+    // A cap above the risk-based size changes nothing.
+    let mut loose = RiskEngine::new(RiskConfig { max_lots_per_trade: 500.0, ..test_config() }).unwrap();
+    assert_eq!(loose.evaluate(&proposal("c"), &w.ctx()).volume, free.volume);
+}
+
+#[test]
 fn probability_thresholds_are_per_side_and_never_lowered() {
     let w = World::new();
     // Reference proposal: BUY with p = 0.6.

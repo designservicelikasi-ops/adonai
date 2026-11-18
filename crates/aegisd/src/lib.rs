@@ -126,10 +126,10 @@ struct ResetBody {
 }
 
 /// Fields of the view sent to the dashboard every second (the rest is fetched per page).
-const SUMMARY_KEYS: [&str; 27] = [
+const SUMMARY_KEYS: [&str; 29] = [
     "now_ms", "started_ms", "version", "mode", "live_armed", "live_trading_enabled_in_config", "connection", "bridge", "account",
     "markets", "positions", "position_decisions", "pending", "entry_states", "goal", "day", "peak_equity", "drawdown_pct",
-    "floating_pnl", "daily_net", "daily_net_pct", "daily_halt", "kill", "health", "risk_config", "shadow_dropped", "alerts",
+    "floating_pnl", "daily_net", "daily_net_pct", "daily_halt", "kill", "health", "risk_config", "shadow_dropped", "alerts", "specs", "foreign_tickets",
 ];
 
 fn view_value(st: &ApiState) -> Value {

@@ -45,7 +45,9 @@ fn mql5_frame(key: &[u8], seq: u64, sid: &str, body_fields: &str) -> String {
 fn every_connector_message_is_accepted_by_the_engine() {
     // Field lists copied from mt5/AegisConnector.mq5 (SendSpec, SendAccount, SendSnapshot, ...).
     let bodies: Vec<(&str, &str)> = vec![
-        ("spec", r#""t":"spec","symbol":"EURUSD","digits":5,"point":0.0000100000,"contract_size":100000.00000000,"tick_size":0.0000100000,"tick_value":1.0000000000,"volume_min":0.01000000,"volume_max":100.00000000,"volume_step":0.01000000,"stops_level":10.0,"swap_long":-6.50000000,"swap_short":1.20000000,"trade_mode":"full","currency_profit":"USD""#),
+        ("spec", r#""t":"spec","symbol":"EURUSD","digits":5,"point":0.0000100000,"contract_size":100000.00000000,"tick_size":0.0000100000,"tick_value":1.0000000000,"volume_min":0.01000000,"volume_max":100.00000000,"volume_step":0.01000000,"stops_level":10.0,"swap_long":-6.50000000,"swap_short":1.20000000,"trade_mode":"full","currency_profit":"USD","currency_base":"EUR","freeze_level":5.0"#),
+        // A connector of protocol 1.0 (no currency_base / freeze_level / fee) is still accepted.
+        ("spec", r#""t":"spec","symbol":"GBPUSD","digits":5,"point":0.0000100000,"contract_size":100000.00000000,"tick_size":0.0000100000,"tick_value":1.0000000000,"volume_min":0.01000000,"volume_max":100.00000000,"volume_step":0.01000000,"stops_level":10.0,"swap_long":-6.50000000,"swap_short":1.20000000,"trade_mode":"full","currency_profit":"USD""#),
         ("account", r#""t":"account","login":5001234,"server":"Broker-Demo","currency":"USD","balance":10000.00,"equity":10012.50,"margin":110.00,"margin_free":9902.50,"leverage":100,"trade_mode":"demo","trade_allowed":true"#),
         ("pos", r#""t":"pos","snap":3,"ticket":123456789,"symbol":"EURUSD","side":"buy","volume":0.23000000,"price_open":1.10012000,"sl":1.09810000,"tp":1.10410000,"profit":-2.30,"swap":0.00,"commission":0.00,"magic":20260115,"comment":"A0123456789abcdef","open_time":1799999990000"#),
         ("ord", r#""t":"ord","snap":3,"ticket":123456790,"symbol":"EURUSD","side":"sell","kind":"limit","volume":0.10000000,"price":1.10500000,"sl":1.10700000,"tp":1.10100000,"magic":20260115,"comment":"A0123456789abcdee","setup_time":1799999980000"#),
@@ -53,7 +55,7 @@ fn every_connector_message_is_accepted_by_the_engine() {
         ("tick", r#""t":"tick","symbol":"EURUSD","time":1799999999500,"bid":1.10000,"ask":1.10010"#),
         ("bar", r#""t":"bar","symbol":"EURUSD","tf":"M15","time":1799999100000,"open":1.10000,"high":1.10050,"low":1.09980,"close":1.10020,"volume":345,"spread":9.0,"last":false"#),
         ("result", r#""t":"result","cid":"A0123456789abcdef","ok":true,"retcode":10009,"ticket":123456789,"price":1.10012000,"volume":0.23000000,"msg":"Request executed""#),
-        ("deal", r#""t":"deal","deal":987654321,"position":123456789,"symbol":"EURUSD","side":"buy","volume":0.23000000,"price":1.10410000,"profit":91.54,"swap":0.00,"commission":-1.61,"time":1799999999900,"comment":"[tp 1.10410]","origin":"A0123456789abcdef""#),
+        ("deal", r#""t":"deal","deal":987654321,"position":123456789,"symbol":"EURUSD","side":"buy","volume":0.23000000,"price":1.10410000,"profit":91.54,"swap":0.00,"commission":-1.61,"time":1799999999900,"comment":"[tp 1.10410]","origin":"A0123456789abcdef","fee":-0.05"#),
         ("balance_op", r#""t":"balance_op","deal":987654322,"amount":500.00,"time":1799999999950"#),
         ("heartbeat", r#""t":"heartbeat""#),
         ("bye", r#""t":"bye","reason":"connector stopped""#),
@@ -71,6 +73,7 @@ fn every_connector_message_is_accepted_by_the_engine() {
     let spec = s2.open(&line, NOW).unwrap().body.to_symbol_spec().unwrap();
     assert_eq!((spec.digits, spec.point, spec.tick_value, spec.swap_long), (5, 0.00001, 1.0, -6.5));
     assert_eq!(spec.trade_mode, SymbolTradeMode::Full);
+    assert_eq!((spec.currency_base.as_str(), spec.freeze_level_points), ("EUR", 5.0), "protocol 1.1 fields");
 }
 
 #[test]

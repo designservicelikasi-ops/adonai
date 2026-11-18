@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# The desktop application has its own Cargo workspace (built by the Tauri CLI).
+exclude = ["desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

@@ -10,7 +10,7 @@
 //| validate on a DEMO account before anything else.                  |
 //+------------------------------------------------------------------+
 #property copyright "AEGIS"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 #property description "AEGIS connector: authenticated bridge to the AEGIS risk engine."
 
@@ -208,7 +208,7 @@ bool Connect()
    string hello = JStr("t", "hello") + "," + JStr("nonce", nonce) + "," + JStr("terminal", "mt5") + "," +
                   JInt("login", AccountInfoInteger(ACCOUNT_LOGIN)) + "," + JStr("server", AccountInfoString(ACCOUNT_SERVER)) + "," +
                   JStr("trade_mode", TradeModeName()) + "," +
-                  JStr("build", "AegisConnector 1.00 / MT5 build " + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
+                  JStr("build", "AegisConnector 1.10 / MT5 build " + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    if(!SendRaw(AegisSealFrame(g_psk, "hello-" + nonce, NowMs(), 0, "", hello)))
       return false;
 
@@ -281,7 +281,10 @@ void SendSpec(const string symbol)
             JNum("volume_step", SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP)) + "," +
             JNum("stops_level", (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL), 1) + "," +
             JNum("swap_long", swap_long) + "," + JNum("swap_short", swap_short) + "," + JStr("trade_mode", trade_mode) + "," +
-            JStr("currency_profit", SymbolInfoString(symbol, SYMBOL_CURRENCY_PROFIT)));
+            JStr("currency_profit", SymbolInfoString(symbol, SYMBOL_CURRENCY_PROFIT)) + "," +
+            //--- protocol 1.1: base currency (exposure per currency) and freeze level (SL/TP changes)
+            JStr("currency_base", SymbolInfoString(symbol, SYMBOL_CURRENCY_BASE)) + "," +
+            JNum("freeze_level", (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL), 1));
   }
 
 void SendAccount()
@@ -790,6 +793,8 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
    double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
    double swap = HistoryDealGetDouble(trans.deal, DEAL_SWAP);
    double commission = HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+   //--- protocol 1.1: other broker fees on the deal
+   double fee = HistoryDealGetDouble(trans.deal, DEAL_FEE);
    string comment = HistoryDealGetString(trans.deal, DEAL_COMMENT);
    //--- comment of the order that OPENED this position (the AEGIS client id), plus its entry commission
    string origin = "";
@@ -805,13 +810,16 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
             //--- charge the entry commission pro rata to the volume being closed
             double in_volume = HistoryDealGetDouble(d, DEAL_VOLUME);
             if(in_volume > 0)
+              {
                commission += HistoryDealGetDouble(d, DEAL_COMMISSION) * MathMin(1.0, volume / in_volume);
+               fee += HistoryDealGetDouble(d, DEAL_FEE) * MathMin(1.0, volume / in_volume);
+              }
            }
         }
      }
    SendBody(JStr("t", "deal") + "," + JInt("deal", (long)trans.deal) + "," + JInt("position", position_id) + "," +
             JStr("symbol", symbol) + "," + JStr("side", side) + "," + JNum("volume", volume) + "," + JNum("price", price) + "," +
             JNum("profit", profit, 2) + "," + JNum("swap", swap, 2) + "," + JNum("commission", commission, 2) + "," +
-            JInt("time", time_ms) + "," + JStr("comment", comment) + "," + JStr("origin", origin));
+            JInt("time", time_ms) + "," + JStr("comment", comment) + "," + JStr("origin", origin) + "," + JNum("fee", fee, 2));
   }
 //+------------------------------------------------------------------+
