@@ -85,7 +85,10 @@ fn sim_config(h: &EngineHandle, cfg: &EngineConfig, script: Vec<f64>) -> SimTerm
     let mut s = SimTerminalConfig::new(&h.bridge_addr.to_string(), &psk);
     s.history = quiet_history(300);
     s.feed = PriceFeed::Script(script);
-    s.tick_interval_ms = 12;
+    // The scripted rally moves one pip per tick. On slower machines (Windows CI runners)
+    // a 12 ms tick lets the price run past the target before the order is processed,
+    // and the simulated broker rightly refuses it ("invalid stops").
+    s.tick_interval_ms = if cfg!(windows) { 60 } else { 12 };
     s.sim_ms_per_tick = 60_000; // five ticks per M5 bar
     s
 }
