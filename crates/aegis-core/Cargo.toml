@@ -16,6 +16,7 @@ aegis-learning.workspace = true
 aegis-probability.workspace = true
 aegis-news.workspace = true
 aegis-shadow.workspace = true
+aegis-brain.workspace = true
 ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
 aegis-execution.workspace = true
 tokio.workspace = true

@@ -18,6 +18,13 @@ pub fn utc_day(ts_ms: TimestampMs) -> i64 {
     ts_ms.div_euclid(86_400_000)
 }
 
+/// Calendar month (UTC) as `year * 12 + month - 1`: consecutive months differ by 1.
+pub fn utc_month(ts_ms: TimestampMs) -> i64 {
+    use chrono::Datelike;
+    let d = chrono::DateTime::from_timestamp_millis(ts_ms).unwrap_or_default();
+    d.year() as i64 * 12 + d.month0() as i64
+}
+
 pub fn format_ts(ts_ms: TimestampMs) -> String {
     chrono::DateTime::from_timestamp_millis(ts_ms)
         .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())

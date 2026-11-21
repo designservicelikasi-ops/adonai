@@ -456,5 +456,71 @@ pub fn train(
     })
 }
 
+/// Out-of-sample quality of one side of a model on a holdout period.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SideScore {
+    /// Scenarios labelled on the holdout period.
+    pub rows: usize,
+    /// Scenarios for which the model gave a probability.
+    pub predicted: usize,
+    /// Brier score on the predicted scenarios (lower is better).
+    pub brier: Option<f64>,
+}
+
+impl SideScore {
+    pub fn coverage(&self) -> f64 {
+        if self.rows == 0 { 0.0 } else { self.predicted as f64 / self.rows as f64 }
+    }
+}
+
+/// Score of a model on bars it was NOT trained on (the most recent period).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HoldoutScore {
+    pub from_ts: TimestampMs,
+    pub to_ts: TimestampMs,
+    pub bars: usize,
+    pub buy: SideScore,
+    pub sell: SideScore,
+}
+
+/// Score `model` on the scenarios of `grid` (labels from the triple barrier) for the
+/// bars `from..` of `bars`. Earlier bars are only used as feature history.
+pub fn holdout_score(model: &ProbabilityModel, grid: &ProbabilityConfig, bars: &[Candle], from: usize, point: f64) -> HoldoutScore {
+    let mut out = HoldoutScore { bars: bars.len().saturating_sub(from), ..Default::default() };
+    if let (Some(a), Some(b)) = (bars.get(from), bars.last()) {
+        out.from_ts = a.open_ts;
+        out.to_ts = b.open_ts;
+    }
+    let start = from.max(aegis_learning::FEATURE_MIN_BARS.max(15));
+    let mut sums = [(0usize, 0usize, 0.0f64); 2]; // (rows, predicted, squared error) for buy, sell
+    let mut i = start;
+    while i + grid.horizon_bars < bars.len() {
+        let w = &bars[(i + 1).saturating_sub(WINDOW)..=i];
+        if let (Some(market), Some(a)) = (compute_features(w), aegis_market::indicators::atr(w, 14).filter(|a| *a > 0.0)) {
+            let spread = bars[i].spread_points.max(0.0) * point;
+            for (k, side) in [Side::Buy, Side::Sell].into_iter().enumerate() {
+                let m = model.side(side);
+                for &tp in &grid.tp_grid {
+                    for &sl in &grid.sl_grid {
+                        if let Some(y) = triple_barrier(bars, i, side, tp * a, sl * a, spread, grid.horizon_bars) {
+                            sums[k].0 += 1;
+                            if let Some(p) = m.predict(&market, tp, sl) {
+                                let y = if y { 1.0 } else { 0.0 };
+                                sums[k].1 += 1;
+                                sums[k].2 += (p - y) * (p - y);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i += grid.stride;
+    }
+    let side = |(rows, predicted, se): (usize, usize, f64)| SideScore { rows, predicted, brier: (predicted > 0).then(|| se / predicted as f64) };
+    out.buy = side(sums[0]);
+    out.sell = side(sums[1]);
+    out
+}
+
 #[cfg(test)]
 mod tests;

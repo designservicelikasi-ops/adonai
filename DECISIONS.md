@@ -169,3 +169,33 @@ publiée absente de la source reste vide. Un calendrier injoignable met en « pr
 suspend, au choix). Aucun modèle de langage n'est utilisé : cette option prévue par la
 spécification n'a pas été implémentée (elle exigerait une clé d'API et n'apporterait rien de
 vérifiable aux règles de fenêtre).
+
+## D31 — Cerveau micro-profits : il choisit la cible, il ne touche pas au risque
+Demande : viser des gains NETS de 0,08 à 2,00 par transaction sur EURUSD et s'améliorer avec
+le temps. Le cerveau (`aegis-brain`, section `[brain]`, désactivé par défaut) garde le stop de
+la stratégie et essaie, pour le volume du Risk Engine puis des volumes plus petits, des cibles
+dont le gain net (coûts appris inclus) tombe dans la fourchette ; il retient la meilleure
+espérance nette parmi celles qui passent les seuils du Risk Engine (probabilité minimale du
+côté, espérance minimale). Il ne demande jamais plus de volume que le Risk Engine, qui
+revérifie tout. La preuve de backtest d'une stratégie n'est utilisée que pour une cible au
+plus égale à la sienne (pour un même stop, une cible plus proche est au moins aussi probable) ;
+au-delà, seul le modèle de scénario compte. Sans probabilité validée : pas de transaction.
+
+## D32 — Apprentissage uniquement dans le sens de la prudence
+Les leçons sont recalculées depuis le journal (même type de terminal uniquement) : frais réels
+par lot (seul un surcoût est ajouté ; un broker moins cher ne rend pas plus audacieux),
+correction des probabilités = gains obtenus / gains promis, rétrécie vers 1 par
+`prior_trades` et plafonnée à 1 (calculée sur la probabilité BRUTE, colonne `probability_raw`,
+sinon la correction se corrigerait elle-même), contextes stratégie x sens x session bloqués
+quand la moyenne + une erreur type reste négative après `context_min_trades` transactions.
+Un contexte n'est jamais « favorisé » par une taille plus grande.
+
+## D33 — Réentraînement automatique, activation par l'utilisateur
+Choix de l'utilisateur (2026-11-21) : une nouvelle version n'est jamais activée seule, même en
+démo. Toutes les `retrain_every_hours`, le moteur entraîne une version sur l'historique sans
+sa partie la plus récente (`holdout_pct`), puis note la nouvelle version et la version active
+sur cette période (Brier, couverture). La version active a pu voir ces bougies : la
+comparaison la favorise, ce qui n'oblige que davantage la nouvelle. Meilleure : enregistrée
+inactive, alerte, boutons « Activer » / « Écarter » (page Cerveau IA). Ce qui est activé est
+exactement ce qui a été comparé.
+

@@ -25,6 +25,7 @@ aegis-probability = { path = "crates/aegis-probability" }
 aegis-news = { path = "crates/aegis-news" }
 aegis-shadow = { path = "crates/aegis-shadow" }
 aegis-client = { path = "crates/aegis-client" }
+aegis-brain = { path = "crates/aegis-brain" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }

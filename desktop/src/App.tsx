@@ -9,6 +9,7 @@ import Trading from "./pages/Trading";
 import Decisions from "./pages/Decisions";
 import Strategies from "./pages/Strategies";
 import Intelligence from "./pages/Intelligence";
+import Brain from "./pages/Brain";
 import News from "./pages/News";
 import Settings from "./pages/Settings";
 import System from "./pages/System";
@@ -19,6 +20,7 @@ const PAGES = [
   { id: "trading", label: "Positions & ordres", icon: "⇅" },
   { id: "decisions", label: "Décisions", icon: "⎇" },
   { id: "strategies", label: "Stratégies", icon: "⚙" },
+  { id: "brain", label: "Cerveau IA", icon: "✦" },
   { id: "intelligence", label: "Probabilités & Shadow", icon: "◎" },
   { id: "news", label: "Actualités", icon: "☰" },
   { id: "settings", label: "Risque & configuration", icon: "⛨" },
@@ -121,6 +123,8 @@ export default function App() {
         return <Decisions {...props} />;
       case "strategies":
         return <Strategies {...props} />;
+      case "brain":
+        return <Brain {...props} />;
       case "intelligence":
         return <Intelligence {...props} />;
       case "news":

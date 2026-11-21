@@ -47,6 +47,13 @@ Cette liste est volontairement complète. Rien ici n'est caché ailleurs.
 24. **Montants en `f64`** : suffisant pour le contrôle du risque, pas pour une comptabilité
     officielle (le broker fait foi).
 25. **Journal d'audit pendant une panne de base** : écrit dans le fichier journal seulement.
+26. **Cerveau micro-profits** : rien n'a été validé sur données réelles. Avec un broker
+    cher, la plupart des micro-cibles sont refusées (c'est voulu). Il a besoin d'un modèle de
+    probabilité entraîné sur beaucoup d'historique (le réentraînement refuse en dessous d'une
+    période de contrôle suffisante) ; sans modèle, il ne peut viser que des cibles plus
+    proches que celle de la stratégie. Ses leçons ne distinguent pas deux comptes démo
+    différents d'un même type de terminal. La comparaison des versions porte sur la justesse
+    des probabilités (Brier), pas directement sur le profit.
 
 ## Ce qu'AEGIS ne fait pas, par principe
 

@@ -28,6 +28,7 @@
 | `aegis-market` | bougies à partir des ticks, indicateurs (EMA, RSI, ATR, Donchian, Bollinger, pivots), régimes, sessions, qualité des données |
 | `aegis-strategy` | 9 stratégies : EMA crossover, RSI momentum, suivi de tendance, breakout, pullback, retour à la moyenne RSI, retour à la moyenne Bollinger, rejet S/R, expansion de volatilité ; cycle de vie |
 | `aegis-probability` | **Probability Engine** : P(TP avant SL), triple barrière, régression logistique, walk-forward, calibration, Brier/log loss/fiabilité |
+| `aegis-brain` | **Cerveau micro-profits** : choix de la cible dans une fourchette de gain net, leçons des transactions réelles (frais, calibration, contextes), comparaison des versions de modèle |
 | `aegis-risk` | **Risk Engine** : taille, coûts, espérance nette, limites, seuils de probabilité, **Daily Goal Manager**, **Position Intelligence**, autorisations signées, arrêt d'urgence |
 | `aegis-execution` | cycle de vie des ordres, idempotence, délais, état inconnu, réconciliation |
 | `aegis-protocol` | protocole MT5 : trames, HMAC, poignée de main, session anti-rejeu |

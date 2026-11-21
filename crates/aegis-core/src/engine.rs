@@ -102,6 +102,7 @@ pub(crate) struct Engine {
     pub shadow: Option<aegis_shadow::ShadowHandle>,
     pub shadow_dropped: std::sync::atomic::AtomicU64,
     pub shadow_saved_ms: TimestampMs,
+    pub brain: crate::brain::BrainState,
     pub alerts: VecDeque<crate::ops::Alert>,
     pub heartbeat_ms: TimestampMs,
     pub last_auto_backup_ms: TimestampMs,
@@ -324,6 +325,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         shadow: None,
         shadow_dropped: std::sync::atomic::AtomicU64::new(0),
         shadow_saved_ms: now,
+        brain: Default::default(),
         alerts: VecDeque::new(),
         heartbeat_ms: 0,
         last_auto_backup_ms: 0,
@@ -365,6 +367,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         engine.deals.push_back(d);
     }
     engine.load_probability_models().await;
+    engine.load_brain().await;
     // First automatic backup one period after the last one (not at every restart).
     engine.last_auto_backup_ms = engine.store.kv_get::<TimestampMs>("last_auto_backup_ms").await?.unwrap_or(now);
     if engine.cfg.shadow.enabled {
@@ -436,6 +439,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         alerts: Vec::new(),
         shadow: None,
         shadow_dropped: 0,
+        brain: Default::default(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -854,6 +858,7 @@ impl Engine {
         }
         self.persist_accounting().await;
         self.journal_on_deal(&d).await;
+        self.brain.stale = true;
         self.shadow_trade(d.position_ticket).await;
         // A deal that closes a position whose opening was never confirmed proves the order ran.
         if let Some(cid) = self.executor.note_deal(&d.origin, d.position_ticket) {
@@ -972,6 +977,7 @@ impl Engine {
         }
         self.maybe_fetch_news(now);
         self.persist_shadow(now).await;
+        self.brain_tick(now).await;
         self.run_ops(now).await;
         // The probe runs in the background so a stuck database never stalls the engine.
         if now - self.last_db_ping_ms >= 3_000 && !self.ping_in_flight {
@@ -1205,6 +1211,7 @@ impl Engine {
             alerts: self.alerts.iter().cloned().collect(),
             shadow: self.shadow.as_ref().map(|s| (**s.report.borrow()).clone()),
             shadow_dropped: self.shadow_dropped.load(std::sync::atomic::Ordering::Relaxed),
+            brain: self.brain_view(now),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),

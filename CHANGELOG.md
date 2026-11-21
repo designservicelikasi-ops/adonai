@@ -1,5 +1,31 @@
 # Historique des versions
 
+## Non publiée — branche `cerveau-micro-profits` (2026-11-21)
+
+### Ajouté
+
+- **Cerveau micro-profits** (`aegis-brain`, section `[brain]`, désactivé par défaut) : pour
+  chaque signal sur EURUSD, choisit la cible (et si besoin un volume plus petit) dont le gain
+  NET si gagné est entre 0,08 et 2,00, avec la meilleure espérance nette parmi celles que le
+  Risk Engine accepterait. Contrôle `cerveau` dans chaque décision, avec son explication.
+- **Apprentissage continu** depuis le journal : frais réels par lot, correction des
+  probabilités trop optimistes, contextes (stratégie x sens x session) perdants bloqués ;
+  alerte quand le cerveau devient nettement plus prudent.
+- **Réentraînement automatique** (toutes les 24 h par défaut) avec période de contrôle ; une
+  meilleure version est **proposée** (alerte) et n'est utilisée qu'après « Activer ».
+  Commandes `brain_retrain`, `brain_accept_candidate`, `brain_dismiss_candidate`.
+- Page **Cerveau IA** dans AEGIS Desktop ; section `brain` de l'état publié.
+- Journal : colonnes `probability_raw` et `brain` (migration 0006).
+- `aegis_risk::size_volume` : le calcul de taille du Risk Engine, partagé avec le cerveau.
+- `aegis_probability::holdout_score` : note d'un modèle sur des bougies qu'il n'a pas vues.
+- **Objectif mensuel** : `daily_goal.period = "day" | "month"` (mois civil UTC, cumulé d'un
+  jour à l'autre) ; mêmes politiques (arrêter, protéger le gain, suivre).
+- **SL / TP en pips** pour le cerveau (`sl_pips`, `tp_pips` fixe, `max_tp_pips`) ; réglages du
+  cerveau modifiables dans l'application (`set_brain_config`), conservés en base.
+- Unités de temps par défaut : **M1 et M5** ; historique demandé : 5000 bougies.
+- Moteur local d'AEGIS Desktop créé avec : cerveau actif sur EURUSD, M1/M5, espérance
+  minimale 0,01, objectif « protéger le gain ».
+
 ## 0.2.0 — 2026-11-18
 
 Réalisée d'après la spécification v2 (`docs/SPECIFICATION.md`). Développée et testée sur macOS

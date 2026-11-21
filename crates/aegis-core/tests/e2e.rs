@@ -748,3 +748,141 @@ async fn unattended_operation_heartbeat_backups_and_alerts() {
     assert!(v.alerts[0].text.contains("test d'alerte"));
     h.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn brain_takes_a_micro_profit_inside_the_net_range_and_learns_from_it() {
+    let r = rig_with("brain", 60, true, |c| {
+        c.brain.enabled = true;
+        // Micro-gains have micro-expectations: the default minimum ($0.50) would refuse them all.
+        c.risk.min_net_expected_profit = 0.01;
+        // One trade is enough for this test.
+        c.risk.daily_goal.amount = 0.01;
+    })
+    .await;
+    let h = &r.h;
+    let v = wait_for(h, "approved brain decision", |v| breakout_decision(v).is_some_and(|d| d.outcome == "approved")).await;
+    let d = breakout_decision(&v).unwrap().clone();
+    let brain = d.engine_checks.iter().find(|c| c.name == "cerveau").expect("the brain explains its choice");
+    assert!(brain.passed && brain.detail.contains("espérance"), "{}", brain.detail);
+    // The risk engine's own, independent computation lands in the 0.08 - 2.00 net range.
+    let micro = d.micro().unwrap();
+    assert!(micro.net_if_win >= 0.08 - 1e-6 && micro.net_if_win <= 2.0 + 1e-6, "{micro:?}");
+    assert!(micro.expected_net.unwrap() > 0.0);
+    assert!(micro.probability_source.starts_with("cerveau"), "{}", micro.probability_source);
+    let choice = v.brain.choices.iter().find(|c| c.decision_id == d.decision_id).expect("choice recorded");
+    let chosen = choice.chosen.clone().unwrap();
+    assert!(choice.traded);
+    assert!((chosen.volume - d.assessment.volume).abs() < 1e-9, "the risk engine used the brain's volume");
+    assert!((d.tp - chosen.tp).abs() < 1e-9);
+    // Without a probability model, only the strategy's backtest evidence exists: it is valid
+    // for a CLOSER target only, so the brain never aims farther than the strategy.
+    assert!(chosen.tp_distance <= choice.strategy_tp_distance + 1e-9);
+    assert!(!v.brain.warnings.iter().any(|w| w.contains("aucune transaction ne peut passer")));
+
+    // The trade closes; the journal marks it as a brain trade with its raw probability.
+    let cid = d.cid.clone().unwrap();
+    let v = wait_for(h, "brain trade closed", |v| v.journal.iter().any(|e| e.cid == cid && e.closed_ms.is_some())).await;
+    let j = v.journal.iter().find(|e| e.cid == cid).unwrap().clone();
+    assert!(j.brain && j.probability_raw == Some(chosen.probability_raw));
+    assert!(j.net > 0.0 && j.net <= 2.0 + 0.05, "a micro-profit: {}", j.net);
+    // The lessons now include the real costs of that trade.
+    let v = wait_for(h, "lessons from the closed trade", |v| v.brain.lessons.iter().any(|l| l.trades >= 1)).await;
+    let l = v.brain.lessons.iter().find(|l| l.symbol == SIM_SYMBOL).unwrap();
+    assert!(l.cost.observed_per_lot.is_some() && l.contexts.len() == 1);
+    // 300 bars of history are not enough to retrain: the brain says so and proposes nothing.
+    let msg = must(h, Command::BrainRetrain).await;
+    assert!(msg.contains("insuffisant"), "{msg}");
+    assert!(h.snapshot().brain.candidates.is_empty());
+    r.sim.stop().await;
+    r.h.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn brain_proposes_a_better_version_and_only_the_user_activates_it() {
+    let r = rig_with("brain-retrain", 100_000, false, |c| {
+        c.brain.enabled = true;
+        c.probability = aegis_probability::ProbabilityConfig {
+            tp_grid: vec![0.5, 1.0],
+            sl_grid: vec![1.0],
+            horizon_bars: 20,
+            stride: 4,
+            folds: 3,
+            min_samples: 200,
+            ..Default::default()
+        };
+    })
+    .await;
+    let h = &r.h;
+    assert!(h.command(Command::BrainAcceptCandidate { model_id: "nothing".into() }).await.is_err());
+    must(h, Command::GenerateSynthetic { symbol: SIM_SYMBOL.into(), timeframe: Timeframe::M5, bars: 3_000, seed: 4 }).await;
+    let msg = must(h, Command::BrainRetrain).await;
+    assert!(msg.contains("proposée"), "no active model: a calibrated version is an improvement: {msg}");
+    let v = h.snapshot();
+    let c = v.brain.candidates.first().expect("candidate listed").clone();
+    assert!(c.active_model_id.is_none() && c.score.buy.rows > 0 && c.bars_trained < 3_300);
+    assert!(v.probability_models.is_empty(), "a proposed version is NOT used before the user accepts it");
+    assert!(v.alerts.iter().any(|a| a.source == "brain" && a.text.contains("prête")));
+    assert_eq!(v.brain.retrain_log.first().map(|x| x.proposed), Some(true));
+
+    must(h, Command::BrainAcceptCandidate { model_id: c.model_id.clone() }).await;
+    let v = h.snapshot();
+    assert_eq!(v.probability_models.first().map(|m| m.model_id.clone()), Some(c.model_id.clone()));
+    assert!(v.brain.candidates.is_empty());
+
+    // Next retraining: same data, compared with the now-active version on unseen bars.
+    let msg = must(h, Command::BrainRetrain).await;
+    assert!(msg.contains("écartée") || msg.contains("proposée"), "{msg}");
+    if let Some(next) = h.snapshot().brain.candidates.first().cloned() {
+        assert_eq!(next.active_model_id.as_deref(), Some(c.model_id.as_str()));
+        must(h, Command::BrainDismissCandidate { model_id: next.model_id.clone() }).await;
+        assert_eq!(h.snapshot().probability_models[0].model_id, c.model_id, "dismissing changes nothing");
+    }
+    r.sim.stop().await;
+    r.h.shutdown().await;
+    // Proposals survive a restart (stored, inactive).
+    let store = Store::open(&r.dir.join("aegis.db")).await.unwrap();
+    let rows = store.probability_models(None).await.unwrap();
+    assert_eq!(rows.iter().filter(|m| m.active).count(), 1);
+    store.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn user_sl_tp_in_pips_and_a_monthly_goal_are_applied_and_kept() {
+    let r = rig_with("brain-pips", 60, false, |c| c.brain.enabled = true).await;
+    let h = &r.h;
+    // SL 12 pips, TP chosen by the brain but never beyond 8 pips.
+    let mut b = h.snapshot().brain.config.clone();
+    b.sl_pips = 12.0;
+    b.max_tp_pips = 8.0;
+    let msg = must(h, Command::SetBrainConfig(b.clone())).await;
+    assert!(msg.contains("SL 12 pips") && msg.contains("au plus 8 pips"), "{msg}");
+    let mut bad = b.clone();
+    bad.tp_pips = 20.0;
+    assert!(h.command(Command::SetBrainConfig(bad)).await.is_err(), "fixed TP above the maximum is refused");
+    // Monthly goal, protecting the gain once reached.
+    let mut rc = h.snapshot().risk_config.clone();
+    rc.daily_goal.period = aegis_risk::GoalPeriod::Month;
+    rc.daily_goal.policy = aegis_risk::GoalPolicy::ProtectGains;
+    rc.daily_goal.amount = 300.0;
+    must(h, Command::SetRiskConfig(rc)).await;
+    let v = wait_for(h, "monthly goal shown", |v| v.goal.as_ref().is_some_and(|g| g.period == aegis_risk::GoalPeriod::Month)).await;
+    assert!(v.goal.as_ref().unwrap().detail.contains("mensuel"));
+
+    // The next signal (observed in MONITOR) uses the user's stop exactly.
+    let v = wait_for(h, "breakout decision with the brain", |v| breakout_decision(v).is_some_and(|d| d.engine_checks.iter().any(|c| c.name == "cerveau"))).await;
+    let d = breakout_decision(&v).unwrap().clone();
+    assert!(((d.entry - d.sl) - 0.0012).abs() < 1e-9, "SL 12 pips below the entry: entry {} sl {}", d.entry, d.sl);
+    let c = v.brain.choices.iter().find(|c| c.decision_id == d.decision_id).unwrap();
+    assert!((c.sl_distance - 0.0012).abs() < 1e-12);
+    for x in c.chosen.iter().chain(c.best.iter()) {
+        assert!(x.tp_distance <= 0.0008 + 1e-9, "TP never beyond 8 pips: {x:?}");
+    }
+    r.sim.stop().await;
+    r.h.shutdown().await;
+    // Both settings survive a restart (the application's version wins over the file).
+    let h = start(r.cfg.clone()).await.unwrap();
+    let v = h.snapshot();
+    assert_eq!((v.brain.config.sl_pips, v.brain.config.max_tp_pips), (12.0, 8.0));
+    assert_eq!(v.risk_config.daily_goal.period, aegis_risk::GoalPeriod::Month);
+    h.shutdown().await;
+}

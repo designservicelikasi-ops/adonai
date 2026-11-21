@@ -5,7 +5,7 @@
 //! so it contains realized P&L, floating P&L, commissions and swaps exactly as
 //! the broker applies them. Deals are also summed to show the realized part.
 
-use aegis_types::{utc_day, Deal, Position, TimestampMs};
+use aegis_types::{utc_day, utc_month, Deal, Position, TimestampMs};
 use serde::{Deserialize, Serialize};
 
 /// Accounting of one UTC day. Amounts in account currency.
@@ -46,6 +46,19 @@ pub struct DayStats {
     /// Losing trades in a row (carried across days).
     pub consecutive_losses: u32,
     pub last_loss_ms: TimestampMs,
+    /// Calendar month (UTC, `utc_month`) of the monthly totals below (carried across days).
+    #[serde(default)]
+    pub month: i64,
+    /// Realized gross / net result of the month's closed deals.
+    #[serde(default)]
+    pub month_gross: f64,
+    #[serde(default)]
+    pub month_net: f64,
+    /// Best realized gross / net result of the month (used by a monthly goal).
+    #[serde(default)]
+    pub month_best_gross: Option<f64>,
+    #[serde(default)]
+    pub month_best_net: Option<f64>,
 }
 
 impl Default for DayStats {
@@ -76,6 +89,23 @@ impl DayStats {
             goal_best_net: None,
             consecutive_losses: 0,
             last_loss_ms: 0,
+            month: utc_month(ts_ms),
+            month_gross: 0.0,
+            month_net: 0.0,
+            month_best_gross: None,
+            month_best_net: None,
+        }
+    }
+
+    /// Start the monthly totals over when `ts_ms` is in a later month.
+    fn sync_month(&mut self, ts_ms: TimestampMs) {
+        let m = utc_month(ts_ms);
+        if m > self.month {
+            self.month = m;
+            self.month_gross = 0.0;
+            self.month_net = 0.0;
+            self.month_best_gross = None;
+            self.month_best_net = None;
         }
     }
 
@@ -84,9 +114,13 @@ impl DayStats {
         if utc_day(ts_ms) != self.day {
             // The losing streak is about the strategy's recent behaviour, not the calendar.
             let (streak, last_loss) = (self.consecutive_losses, self.last_loss_ms);
+            let month = (self.month, self.month_gross, self.month_net, self.month_best_gross, self.month_best_net);
             *self = DayStats::new(ts_ms, equity, balance);
             self.consecutive_losses = streak;
             self.last_loss_ms = last_loss;
+            // The month carries over the day change; it restarts only in a new month.
+            (self.month, self.month_gross, self.month_net, self.month_best_gross, self.month_best_net) = month;
+            self.sync_month(ts_ms);
             true
         } else {
             false
@@ -97,6 +131,12 @@ impl DayStats {
         if utc_day(d.ts_ms) != self.day {
             return;
         }
+        self.sync_month(d.ts_ms);
+        self.month_gross += d.profit;
+        self.month_net += d.net();
+        let (mg, mn) = (self.month_gross, self.month_net);
+        self.month_best_gross = Some(self.month_best_gross.map_or(mg, |b| b.max(mg)));
+        self.month_best_net = Some(self.month_best_net.map_or(mn, |b| b.max(mn)));
         self.realized_gross += d.profit;
         if d.profit >= 0.0 {
             self.gross_profit += d.profit;

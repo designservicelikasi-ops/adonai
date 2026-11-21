@@ -145,13 +145,37 @@ impl Engine {
 
         // ---- P(TP before SL) from the scenario model; the most prudent validated source wins.
         let (scenario_p, scenario_src) = self.scenario_probability(symbol, tf, intent.side, intent.tp_distance, intent.sl_distance);
-        let (win_probability, probability_source) = match (win_probability, scenario_p) {
+        let (mut win_probability, mut probability_source) = match (win_probability, scenario_p) {
             (Some(a), Some(b)) if b < a => (Some(b), format!("{scenario_src} (plus prudent que: {probability_source})")),
             (Some(a), Some(_)) => (Some(a), format!("{probability_source} (plus prudent que: {scenario_src})")),
             (None, Some(b)) => (Some(b), scenario_src),
             (Some(a), None) => (Some(a), format!("{probability_source}; {scenario_src}")),
             (None, None) => (None, format!("{probability_source}; {scenario_src}")),
         };
+
+        // ---- micro-profit brain: chooses the target (and maybe a smaller volume) in the net gain range.
+        let mut tp_distance = intent.tp_distance;
+        let mut sl_distance = intent.sl_distance;
+        let mut requested_volume = None;
+        let mut probability_raw = None;
+        let mut brain_view = None;
+        if self.cfg.brain.applies_to(symbol) {
+            let (b, view) = self.brain_decide(&strategy_id, symbol, tf, intent.side, intent.sl_distance, intent.tp_distance, now);
+            checks.push(check("cerveau", b.passed, b.detail));
+            sl_distance = b.sl_distance;
+            if let Some(c) = b.pick {
+                tp_distance = c.tp_distance;
+                requested_volume = Some(c.volume);
+                probability_raw = Some(c.probability_raw);
+                win_probability = Some(c.probability);
+                probability_source = if b.haircut < 1.0 - 1e-9 {
+                    format!("cerveau: {} ({:.3} x correction apprise {:.3})", c.probability_source, c.probability_raw, b.haircut)
+                } else {
+                    format!("cerveau: {}", c.probability_source)
+                };
+            }
+            brain_view = Some(view);
+        }
 
         // ---- economic news: suspended = no entry; caution = a higher probability is required.
         let news = self.news_assessment(symbol, now);
@@ -175,7 +199,7 @@ impl Engine {
         let (entry, sl, tp) = match (&spec, &last) {
             (Some(s), Some((t, _))) => {
                 let e = if intent.side == Side::Buy { t.ask } else { t.bid };
-                (e, s.round_price(e - sign * intent.sl_distance), s.round_price(e + sign * intent.tp_distance))
+                (e, s.round_price(e - sign * sl_distance), s.round_price(e + sign * tp_distance))
             }
             _ => (0.0, 0.0, 0.0),
         };
@@ -191,7 +215,7 @@ impl Engine {
             win_probability,
             probability_source,
             claimed_risk_amount: None,
-            requested_volume: None,
+            requested_volume,
         };
         // Freshness is judged on the engine clock (receive time), not the broker clock.
         let fresh_tick = last.map(|(t, received)| Tick { ts_ms: received, ..t });
@@ -281,7 +305,9 @@ impl Engine {
                             let _ = self.executor.mark_sent(&cid).await;
                             self.inflight.insert(cid.clone(), symbol.to_string());
                             let terminal_kind = if terminal == Some(TerminalKind::Simulator) { "simulator" } else { "mt5" };
-                            let seed = crate::intel::seed_journal(&decision_id, &cid, &strategy_id, symbol, tf, intent.side, regime.as_str(), terminal_kind, entry, sl, tp, dv.assessment.micro.as_ref());
+                            let mut seed = crate::intel::seed_journal(&decision_id, &cid, &strategy_id, symbol, tf, intent.side, regime.as_str(), terminal_kind, entry, sl, tp, dv.assessment.micro.as_ref());
+                            seed.probability_raw = probability_raw;
+                            seed.brain = brain_view.is_some();
                             self.journal_seeds.insert(cid.clone(), seed);
                             let spread_cost = dv.assessment.micro.as_ref().map(|m| m.costs.spread).unwrap_or(0.0);
                             if let Some(acc) = self.accounting.as_mut() {
@@ -318,6 +344,9 @@ impl Engine {
         self.log("info", "strategy", format!("signal {strategy_id} {} {symbol} {tf}: {} → {summary}", intent.side, intent.reason));
         let why = format!("{strategy_id}: {} → {summary}", intent.reason);
         self.note_entry_decision(symbol, tf, intent.side, &dv.outcome, why, &decision_id);
+        if let Some(view) = brain_view {
+            self.brain_record(view, &decision_id, dv.outcome == "approved");
+        }
         self.shadow_decision(&dv);
         self.decisions.push_back(dv);
         while self.decisions.len() > 300 {

@@ -44,6 +44,10 @@ pub struct JournalEntry {
     /// Maximum favourable / adverse excursion while open, in price.
     pub mfe_price: f64,
     pub mae_price: f64,
+    /// Probability before the brain's calibration haircut (None = same as `probability`).
+    pub probability_raw: Option<f64>,
+    /// The micro-profit brain chose this trade's target and volume.
+    pub brain: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +111,8 @@ fn journal_from_row(r: &sqlx::sqlite::SqliteRow) -> DataResult<JournalEntry> {
         exit_reason: r.get("exit_reason"),
         mfe_price: r.get("mfe_price"),
         mae_price: r.get("mae_price"),
+        probability_raw: r.get("probability_raw"),
+        brain: r.get("brain"),
     })
 }
 
@@ -116,8 +122,8 @@ impl Store {
         sqlx::query(
             "INSERT OR IGNORE INTO trade_journal (ticket, decision_id, cid, strategy_id, symbol, timeframe, side, regime, terminal,
                 opened_ms, volume, entry_requested, entry_filled, sl_initial, tp_initial, probability, probability_source,
-                expected_net, est_spread_cost, est_commission, slippage_cost)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                expected_net, est_spread_cost, est_commission, slippage_cost, probability_raw, brain)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(e.ticket)
         .bind(&e.decision_id)
@@ -140,6 +146,8 @@ impl Store {
         .bind(e.est_spread_cost)
         .bind(e.est_commission)
         .bind(e.slippage_cost)
+        .bind(e.probability_raw)
+        .bind(e.brain)
         .execute(&self.pool)
         .await?;
         Ok(())

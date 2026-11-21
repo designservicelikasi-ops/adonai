@@ -17,6 +17,29 @@ pub const KILL_RESET_PHRASE: &str = "RESET AEGIS";
 
 /// Currencies an instrument exposes the account to: base (reported, or the first
 /// three letters of a six-letter FX name) and profit currency.
+/// Loss of one lot if the stop is hit: distance to the stop, commission and slippage.
+pub fn per_lot_loss(spec: &SymbolSpec, cfg: &RiskConfig, entry: f64, sl: f64) -> f64 {
+    spec.price_distance_value((entry - sl).abs(), 1.0)
+        + cfg.commission_per_lot_round_turn
+        + spec.price_distance_value(cfg.expected_slippage_points * spec.point, 1.0)
+}
+
+/// Volume sized on the risk budget (equity x risk per trade), capped by
+/// `max_lots_per_trade`, rounded down to the broker step. 0.0 = too small to trade.
+/// The risk engine applies exactly this sizing; a caller can only ask for less.
+pub fn size_volume(spec: &SymbolSpec, cfg: &RiskConfig, equity: f64, entry: f64, sl: f64) -> f64 {
+    let budget = equity * cfg.risk_per_trade_pct / 100.0;
+    let loss = per_lot_loss(spec, cfg, entry, sl);
+    if !(loss > 0.0 && budget > 0.0) {
+        return 0.0;
+    }
+    let mut volume = spec.normalize_volume(budget / loss);
+    if cfg.max_lots_per_trade > 0.0 {
+        volume = volume.min(spec.normalize_volume(cfg.max_lots_per_trade));
+    }
+    volume
+}
+
 pub fn currencies_of(spec: &SymbolSpec) -> Vec<String> {
     let mut out = Vec::new();
     let base = if !spec.currency_base.is_empty() {
@@ -399,15 +422,10 @@ impl RiskEngine {
 
             if levels_ok {
                 out.risk_budget = a.equity * cfg.risk_per_trade_pct / 100.0;
-                let per_lot_loss = spec.price_distance_value((entry - p.sl).abs(), 1.0)
-                    + cfg.commission_per_lot_round_turn
-                    + spec.price_distance_value(cfg.expected_slippage_points * spec.point, 1.0);
-                let mut volume = spec.normalize_volume(out.risk_budget / per_lot_loss);
+                let per_lot_loss = per_lot_loss(spec, &cfg, entry, p.sl);
+                let mut volume = size_volume(spec, &cfg, a.equity, entry, p.sl);
                 if let Some(req) = p.requested_volume {
                     volume = volume.min(spec.normalize_volume(req));
-                }
-                if cfg.max_lots_per_trade > 0.0 {
-                    volume = volume.min(spec.normalize_volume(cfg.max_lots_per_trade));
                 }
                 out.volume = volume;
                 out.risk_amount = volume * per_lot_loss;

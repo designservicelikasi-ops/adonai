@@ -5,6 +5,25 @@ audit et plan (`docs/AUDIT_V2.md`). Ce fichier permet de reprendre le travail sa
 contexte et répond à la partie XVIII de la spécification. **Tout résultat ci-dessous a été
 observé ; ce qui ne l'a pas été est marqué NON VÉRIFIÉ, avec la raison et la procédure.**
 
+## Mise à jour du 2026-11-21 — cerveau micro-profits (branche `cerveau-micro-profits`)
+
+Ajout du **cerveau micro-profits** (`crates/aegis-brain`, `crates/aegis-core/src/brain.rs`,
+page *Cerveau IA*) : il choisit la cible de chaque signal sur EURUSD pour un gain **net** de
+0,08 à 2,00, apprend des transactions clôturées (frais réels, correction des probabilités,
+contextes perdants) et réentraîne le modèle de probabilité toutes les 24 h ; une meilleure
+version est **proposée**, jamais activée sans l'utilisateur (choix de l'utilisateur, D33).
+Désactivé par défaut : `[brain] enabled = true`, et baisser `min_net_expected_profit`
+(≈ 0,01) sinon les micro-gains sont refusés.
+
+Vérifié : 237 tests (dont 2 de bout en bout : transaction du cerveau exécutée, clôturée et
+apprise ; version proposée puis activée par l'utilisateur seulement) ; essai du moteur avec
+le simulateur : réentraînement, proposition, activation, refus motivés des signaux sans
+probabilité calibrée ; page *Cerveau IA* affichée avec ces données réelles.
+**NON VÉRIFIÉ** : comportement sur un vrai compte démo MT5 (même raison que § 7-8) ; aucune
+transaction du cerveau basée sur le modèle de scénario n'a été observée en direct (les
+signaux de l'essai étaient refusés à juste titre : côté vente non calibré, espérance négative
+côté achat).
+
 ## En une phrase
 
 Le logiciel est complet et testé **sur macOS avec le simulateur** (223 tests, application

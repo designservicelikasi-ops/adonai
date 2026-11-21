@@ -19,11 +19,11 @@ function issueText(i: Json): string {
 function GoalCard({ s }: { s: Json }) {
   const g = s.goal;
   const ccy = s.account?.currency ?? "";
-  if (!g) return <Panel title="Objectif quotidien"><Empty>Comptabilité du jour indisponible (aucun compte connecté).</Empty></Panel>;
+  if (!g) return <Panel title="Objectif"><Empty>Comptabilité du jour indisponible (aucun compte connecté).</Empty></Panel>;
   const reached = g.reached;
   return (
     <Panel
-      title="Objectif quotidien"
+      title={g.period === "month" ? "Objectif du mois" : "Objectif du jour"}
       right={<Badge tone={g.blocks_entries ? "warn" : reached ? "ok" : "gold"}>{!g.enabled ? "désactivé" : g.blocks_entries ? "entrées arrêtées" : reached ? "atteint" : "en cours"}</Badge>}
     >
       <div className="flex items-end justify-between">

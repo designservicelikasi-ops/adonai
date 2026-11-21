@@ -40,10 +40,37 @@ pub enum GoalPolicy {
     TrackOnly,
 }
 
+/// Period the goal is measured on (UTC calendar).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalPeriod {
+    #[default]
+    Day,
+    Month,
+}
+
+impl GoalPeriod {
+    pub fn label(self) -> &'static str {
+        match self {
+            GoalPeriod::Day => "journalier",
+            GoalPeriod::Month => "mensuel",
+        }
+    }
+    fn rest(self) -> &'static str {
+        match self {
+            GoalPeriod::Day => "la journée",
+            GoalPeriod::Month => "le mois",
+        }
+    }
+}
+
+/// The profit goal (field name kept for compatibility: it may be daily or monthly).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DailyGoal {
     pub enabled: bool,
+    /// Day (default) or calendar month.
+    pub period: GoalPeriod,
     /// Amount in account currency.
     pub amount: f64,
     pub basis: GoalBasis,
@@ -54,7 +81,7 @@ pub struct DailyGoal {
 
 impl Default for DailyGoal {
     fn default() -> Self {
-        DailyGoal { enabled: true, amount: 15.0, basis: GoalBasis::Net, policy: GoalPolicy::StopEntries, protect_fraction: 0.8 }
+        DailyGoal { enabled: true, period: GoalPeriod::Day, amount: 15.0, basis: GoalBasis::Net, policy: GoalPolicy::StopEntries, protect_fraction: 0.8 }
     }
 }
 
@@ -74,6 +101,8 @@ impl DailyGoal {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoalStatus {
     pub enabled: bool,
+    #[serde(default)]
+    pub period: GoalPeriod,
     pub basis: GoalBasis,
     pub policy: GoalPolicy,
     pub amount: f64,
@@ -92,36 +121,36 @@ pub struct GoalStatus {
 }
 
 pub fn goal_status(goal: &DailyGoal, day: &DayStats) -> GoalStatus {
-    let achieved = match goal.basis {
-        GoalBasis::Gross => day.realized_gross,
-        GoalBasis::Net => day.realized_net(),
+    let (achieved, best) = match (goal.period, goal.basis) {
+        (GoalPeriod::Day, GoalBasis::Gross) => (day.realized_gross, day.goal_best_gross),
+        (GoalPeriod::Day, GoalBasis::Net) => (day.realized_net(), day.goal_best_net),
+        (GoalPeriod::Month, GoalBasis::Gross) => (day.month_gross, day.month_best_gross),
+        (GoalPeriod::Month, GoalBasis::Net) => (day.month_net, day.month_best_net),
     };
-    let best = match goal.basis {
-        GoalBasis::Gross => day.goal_best_gross,
-        GoalBasis::Net => day.goal_best_net,
-    };
+    let (label, rest) = (goal.period.label(), goal.period.rest());
     let reached = goal.enabled && (achieved >= goal.amount || best.is_some_and(|b| b >= goal.amount));
     let best_since_reached = if reached { Some(best.unwrap_or(achieved).max(achieved)) } else { None };
     let (blocks, detail) = if !goal.enabled {
         (false, "objectif désactivé".to_string())
     } else if !reached {
-        (false, format!("{:.2} / {:.2} ({}): reste {:.2}", achieved, goal.amount, goal.basis.label(), goal.amount - achieved))
+        (false, format!("objectif {label} {:.2} / {:.2} ({}): reste {:.2}", achieved, goal.amount, goal.basis.label(), goal.amount - achieved))
     } else {
         match goal.policy {
-            GoalPolicy::StopEntries => (true, format!("objectif {} de {:.2} atteint ({achieved:.2}): nouvelles entrées arrêtées pour la journée", goal.basis.label(), goal.amount)),
-            GoalPolicy::TrackOnly => (false, format!("objectif {} de {:.2} atteint ({achieved:.2}): suivi seulement", goal.basis.label(), goal.amount)),
+            GoalPolicy::StopEntries => (true, format!("objectif {label} {} de {:.2} atteint ({achieved:.2}): nouvelles entrées arrêtées pour {rest}", goal.basis.label(), goal.amount)),
+            GoalPolicy::TrackOnly => (false, format!("objectif {label} {} de {:.2} atteint ({achieved:.2}): suivi seulement", goal.basis.label(), goal.amount)),
             GoalPolicy::ProtectGains => {
                 let floor = best_since_reached.unwrap_or(achieved) * goal.protect_fraction;
                 if achieved < floor {
-                    (true, format!("objectif atteint puis gain redescendu à {achieved:.2} sous le plancher protégé {floor:.2}: entrées arrêtées"))
+                    (true, format!("objectif {label} atteint puis gain redescendu à {achieved:.2} sous le plancher protégé {floor:.2}: entrées arrêtées pour {rest}"))
                 } else {
-                    (false, format!("objectif atteint ({achieved:.2}); entrées permises tant que le résultat reste ≥ {floor:.2}"))
+                    (false, format!("objectif {label} atteint ({achieved:.2}); entrées permises tant que le résultat reste ≥ {floor:.2}"))
                 }
             }
         }
     };
     GoalStatus {
         enabled: goal.enabled,
+        period: goal.period,
         basis: goal.basis,
         policy: goal.policy,
         amount: goal.amount,
@@ -156,6 +185,46 @@ mod tests {
             comment: String::new(),
             origin: String::new(),
         }
+    }
+
+    #[test]
+    fn monthly_goal_accumulates_across_days_and_restarts_each_month() {
+        const DAY: i64 = 86_400_000;
+        // 2026-11-02 00:00 UTC.
+        let nov2 = 1_793_577_600_000;
+        let at = |ts: i64, profit: f64| Deal { ts_ms: ts, ..deal(profit, -1.0) };
+        let goal = DailyGoal { period: GoalPeriod::Month, amount: 25.0, policy: GoalPolicy::ProtectGains, protect_fraction: 0.8, ..Default::default() };
+        let mut d = DayStats::new(nov2, 1_000.0, 1_000.0);
+        d.on_deal(&at(nov2 + 1_000, 11.0)); // +10 net
+        assert!(!goal_status(&goal, &d).reached);
+        d.roll_if_new_day(nov2 + DAY, 1_010.0, 1_010.0);
+        assert_eq!(d.realized_net(), 0.0, "the day restarts");
+        assert!((d.month_net - 10.0).abs() < 1e-9, "the month carries over");
+        d.on_deal(&at(nov2 + DAY + 1_000, 21.0)); // +20 net -> month 30
+        let s = goal_status(&goal, &d);
+        assert!(s.reached && !s.blocks_entries, "protect gains: entries continue: {}", s.detail);
+        assert!(s.detail.contains("mensuel"));
+        // The month gives back more than 20 % of its best (30 -> 23): entries stop.
+        d.on_deal(&at(nov2 + DAY + 2_000, -6.0));
+        let s = goal_status(&goal, &d);
+        assert!(s.blocks_entries && s.detail.contains("le mois"), "{}", s.detail);
+        // A daily goal on the same figures only sees today.
+        let daily = DailyGoal { period: GoalPeriod::Day, amount: 25.0, ..goal.clone() };
+        assert!(!goal_status(&daily, &d).reached);
+        // December: everything restarts.
+        d.roll_if_new_day(nov2 + 30 * DAY, 1_000.0, 1_000.0);
+        assert_eq!((d.month_net, d.month_best_net), (0.0, None));
+        assert!(!goal_status(&goal, &d).blocks_entries);
+    }
+
+    #[test]
+    fn stored_day_stats_without_monthly_fields_still_load() {
+        let mut v = serde_json::to_value(DayStats::new(0, 1.0, 1.0)).unwrap();
+        for k in ["month", "month_gross", "month_net", "month_best_gross", "month_best_net"] {
+            v.as_object_mut().unwrap().remove(k);
+        }
+        let d: DayStats = serde_json::from_value(v).unwrap();
+        assert_eq!(d.month, 0);
     }
 
     #[test]

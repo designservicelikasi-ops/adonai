@@ -26,8 +26,8 @@ impl Default for EngineSection {
         EngineSection {
             data_dir: PathBuf::from("data"),
             symbols: Vec::new(),
-            signal_timeframes: vec![Timeframe::M15],
-            history_bars: 500,
+            signal_timeframes: vec![Timeframe::M1, Timeframe::M5],
+            history_bars: 5_000,
         }
     }
 }
@@ -143,6 +143,8 @@ pub struct EngineConfig {
     pub news: aegis_news::NewsConfig,
     /// Shadow Intelligence (independent paper trading, champion/challenger).
     pub shadow: aegis_shadow::ShadowConfig,
+    /// Micro-profit brain: target choice in a net gain range, lessons from real trades.
+    pub brain: aegis_brain::BrainConfig,
     pub ops: OpsSection,
     pub safety: SafetySection,
     pub retention: RetentionSection,
@@ -176,6 +178,7 @@ impl EngineConfig {
         self.risk.validate().map_err(|e| ConfigLoadError::Invalid(e.to_string()))?;
         self.probability.validate().map_err(|e| ConfigLoadError::Invalid(format!("probability: {e}")))?;
         self.news.validate().map_err(ConfigLoadError::Invalid)?;
+        self.brain.validate().map_err(ConfigLoadError::Invalid)?;
         if self.engine.signal_timeframes.is_empty() {
             return bad("engine.signal_timeframes must not be empty".into());
         }

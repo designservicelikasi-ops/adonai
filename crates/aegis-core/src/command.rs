@@ -63,6 +63,14 @@ pub enum Command {
     PromoteChallenger { candidate_id: String },
     /// Make a stored probability model version active (rollback).
     ActivateProbabilityModel { model_id: String },
+    /// Micro-profit brain: retrain its probability models now (better versions are only proposed).
+    BrainRetrain,
+    /// Micro-profit brain settings (on/off, gain range, SL/TP in pips...). Stored; they win over the file.
+    SetBrainConfig(aegis_brain::BrainConfig),
+    /// Activate a version the brain proposed.
+    BrainAcceptCandidate { model_id: String },
+    /// Set aside a version the brain proposed (it stays stored).
+    BrainDismissCandidate { model_id: String },
     VerifyAudit,
     Shutdown,
 }
@@ -73,6 +81,7 @@ pub(crate) enum Internal {
     BacktestDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<BacktestDetail>, String> },
     NewsFetched(Vec<Result<Vec<aegis_news::NewsEvent>, String>>),
     ProbabilityDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<aegis_probability::ProbabilityModel>, String> },
+    BrainRetrained { reply: Option<oneshot::Sender<Reply>>, results: Vec<crate::brain::RetrainOutcome> },
 }
 
 fn seg_view(s: &SegmentResult) -> BacktestSegmentView {
@@ -94,6 +103,17 @@ impl Engine {
                 return;
             }
             Command::ActivateProbabilityModel { model_id } => self.activate_probability_model(&model_id).await,
+            Command::BrainRetrain => {
+                if !self.cfg.brain.enabled {
+                    Err("le cerveau micro-profits est désactivé ([brain] enabled = false dans la configuration)".into())
+                } else {
+                    self.start_brain_retrain(Some(reply)).await;
+                    return;
+                }
+            }
+            Command::SetBrainConfig(c) => self.set_brain_config(c).await,
+            Command::BrainAcceptCandidate { model_id } => self.brain_activate(&model_id).await,
+            Command::BrainDismissCandidate { model_id } => self.brain_dismiss(&model_id).await,
             Command::SetStrategyConfig { id, config } => self.cmd_strategy_config(&id, config, "user").await,
             Command::EvaluateShadowHistory { symbol, timeframe, origin } => self.cmd_shadow_history(&symbol, timeframe, origin).await,
             Command::PromoteChallenger { candidate_id } => self.cmd_promote_challenger(&candidate_id).await,
@@ -441,6 +461,13 @@ impl Engine {
                 }
             }
             Internal::NewsFetched(results) => self.on_news(results).await,
+            Internal::BrainRetrained { reply, results } => {
+                let out = self.on_brain_retrained(results).await;
+                self.publish().await;
+                if let Some(r) = reply {
+                    let _ = r.send(out);
+                }
+            }
             Internal::ProbabilityDone { reply, outcome } => {
                 let out = self.on_probability_trained(outcome).await;
                 if let Err(e) = &out {

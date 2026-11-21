@@ -11,11 +11,11 @@ mod position;
 pub use auth::{AuthError, Authorization};
 pub use config::{ConfigError, KillPositionPolicy, RiskConfig, TradingWindow};
 pub use position::{manage as manage_position, ManagedPosition, PositionAction, PositionActionKind, PositionPolicy};
-pub use goal::{goal_status, DailyGoal, GoalBasis, GoalPolicy, GoalStatus};
+pub use goal::{goal_status, DailyGoal, GoalBasis, GoalPeriod, GoalPolicy, GoalStatus};
 pub use costs::{estimate_costs, evaluate_micro_profit, CostBreakdown, MicroProfitEvaluation};
 pub use day::{drawdown_pct, floating_pnl, DayStats};
 pub use engine::{
-    currencies_of, Check, KillPlan, KillSwitchState, RiskAssessment, RiskContext, RiskEngine, TradeProposal,
+    currencies_of, per_lot_loss, size_volume, Check, KillPlan, KillSwitchState, RiskAssessment, RiskContext, RiskEngine, TradeProposal,
     KILL_RESET_PHRASE,
 };
 

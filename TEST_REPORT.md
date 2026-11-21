@@ -7,7 +7,11 @@ marqué **NON VÉRIFIÉ** avec la raison.
 ## 1. Tests automatisés
 
 Commande : `./scripts/test.sh` (équivalent `cargo test --workspace --all-features`).
-Résultat : **223 réussis, 0 échoué, 2 ignorés volontairement** (test réseau du calendrier,
+Mise à jour du 2026-11-21 (branche `cerveau-micro-profits`) : **237 réussis, 0 échoué**
+(+12 tests `aegis-brain`, +2 bout en bout du cerveau dans `aegis-core`). Le reste de ce rapport
+date de la 0.2.0.
+
+Résultat 0.2.0 : **223 réussis, 0 échoué, 2 ignorés volontairement** (test réseau du calendrier,
 test de capacité : lancés à part, voir § 3 et § 4).
 
 | Module | Tests | Ce qui est couvert |
@@ -20,6 +24,7 @@ test de capacité : lancés à part, voir § 3 et § 4).
 | `aegis-strategy` | 6 + 14 | 9 stratégies (un scénario construit par stratégie), absence de regard vers le futur, validation des paramètres |
 | `aegis-backtest` | 5 + 12 | coûts, reproductibilité, segments, walk-forward |
 | `aegis-learning` | 12 | variables, inférence, portail, dérive, parité Python/Rust |
+| `aegis-brain` | 12 | choix de cible dans la fourchette nette, aucune transaction sans avantage, frais qui mangent les micro-gains, réduction du volume sous le gain maximal, frais appris et correction ⇒ plus prudent, seuils du Risk Engine respectés, probabilité absente ⇒ pas de transaction, leçons (frais réels, calibration sur la probabilité brute, contextes perdants), sessions, comparaison des versions, configuration |
 | `aegis-probability` | 10 | triple barrière (spread, pessimisme), IRLS (coefficients retrouvés), Platt, Brier/log loss/ECE, marché aléatoire ⇒ aucun apport des variables, momentum planté ⇒ détecté et calibré (ECE 0,012), reproductibilité |
 | `aegis-news` | 5 (+1 réseau) | lecture du calendrier, fuseaux, entrées mal formées, fenêtres, calendrier indisponible ≠ calme |
 | `aegis-shadow` | 5 | champion/challengers sur les mêmes bougies, signaux refusés suivis sans regard vers le futur, entrées/sorties prématurées, évaluation historique, restauration, tâche indépendante |

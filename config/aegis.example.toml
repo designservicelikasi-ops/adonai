@@ -11,8 +11,8 @@
 [engine]
 data_dir = "data"                # base de données, journaux, sauvegardes, clé
 symbols = []                     # instruments autorisés ; vide = ceux envoyés par le connecteur MT5
-signal_timeframes = ["M15"]      # unités de temps des stratégies : M1, M5, M15, M30 ou H1
-history_bars = 500               # bougies demandées au terminal à la connexion
+signal_timeframes = ["M1", "M5"] # unités de temps des stratégies : M1, M5, M15, M30 ou H1
+history_bars = 5000              # bougies demandées au terminal à la connexion (beaucoup d'historique = meilleur apprentissage)
 
 [bridge]
 listen = "127.0.0.1:7878"        # adresse où le connecteur MT5 se connecte (gardez-la locale ou privée)
@@ -39,7 +39,7 @@ max_positions_per_symbol = 1
 max_notional_leverage = 5.0      # exposition notionnelle totale / équité
 max_spread_points = 25.0
 max_slippage_points = 10.0       # au-delà, le connecteur refuse d'exécuter
-min_net_expected_profit = 0.5    # espérance nette minimale par transaction (devise du compte)
+min_net_expected_profit = 0.5    # espérance nette minimale par transaction (devise du compte) ; avec [brain], ~0.01
 buy_min_probability = 0.75       # P(TP avant SL) minimale pour un ACHAT (0.50..0.99)
 sell_min_probability = 0.75      # idem pour une VENTE ; jamais abaissée automatiquement
 max_trades_per_day = 500         # entrées par jour (jusqu'à 10 000 ; 2 000 est une valeur valide)
@@ -60,8 +60,9 @@ expected_holding_nights = 0.0
 kill_cancel_pending = true       # arrêt d'urgence : annuler les ordres en attente d'AEGIS
 kill_position_policy = "keep"    # "keep" = conserver les positions avec leurs SL/TP ; "close" = les clôturer
 
-[risk.daily_goal]                # Daily Profit Goal Manager — un objectif, jamais une promesse
+[risk.daily_goal]                # Objectif de gain — un objectif, jamais une promesse
 enabled = true
+period = "day"                   # "day" (chaque jour, 0 h UTC) ou "month" (mois civil, UTC)
 amount = 15.0                    # en devise du compte
 basis = "net"                    # "net" (après commission, swap, frais) ou "gross" (brut)
 policy = "stop_entries"          # "stop_entries" | "protect_gains" | "track_only"
@@ -102,6 +103,24 @@ min_brier_skill = 0.001          # gain de Brier exigé du modèle complet sur l
 max_ece = 0.05                   # erreur de calibration maximale
 display_tp_atr = 0.5             # scénario affiché « P(BUY) / P(SELL) » sur le tableau de bord
 display_sl_atr = 1.0
+
+[brain]                          # Cerveau micro-profits : choisit la cible de chaque signal et apprend des transactions
+enabled = false                  # true = le cerveau choisit les cibles de ses instruments ; false = cibles des stratégies
+symbols = ["EURUSD"]             # variantes du broker comprises (EURUSDm, EURUSD.r...)
+min_net_win = 0.08               # gain NET minimal si la cible est atteinte (après spread, commission, glissement)
+max_net_win = 2.0                # gain NET maximal par transaction ; le volume est réduit si besoin, jamais augmenté
+min_expected_net = 0.0           # espérance nette exigée (strictement au-dessus) ; le seuil de [risk] s'applique aussi
+sl_pips = 0.0                    # Stop Loss en pips ; 0 = celui de la stratégie
+tp_pips = 0.0                    # Take Profit FIXE en pips ; 0 = le cerveau le choisit dans la fourchette de gain
+max_tp_pips = 0.0                # Take Profit maximum que le cerveau peut choisir, en pips ; 0 = sans limite
+target_steps = 12                # cibles essayées par volume entre le gain minimal et maximal
+min_tp_atr = 0.1                 # une cible plus proche que 0,1 ATR est du bruit : jamais utilisée
+prior_trades = 20                # prudence de l'apprentissage : une leçon pèse n / (n + 20)
+context_min_trades = 30          # transactions avant de pouvoir bloquer un contexte perdant
+calibration_window = 200         # transactions récentes pour mesurer si les probabilités tiennent leurs promesses
+retrain_every_hours = 24         # réentraînement automatique ; une meilleure version est PROPOSÉE, jamais activée seule
+holdout_pct = 20.0               # part la plus récente de l'historique gardée pour comparer les versions
+min_brier_gain = 0.0005          # gain exigé d'une nouvelle version sur la période de contrôle
 
 [news]                           # News Intelligence (calendrier économique)
 enabled = true

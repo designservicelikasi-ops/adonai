@@ -1,0 +1,15 @@
+[package]
+name = "aegis-brain"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+aegis-types.workspace = true
+aegis-risk.workspace = true
+aegis-data.workspace = true
+aegis-probability.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

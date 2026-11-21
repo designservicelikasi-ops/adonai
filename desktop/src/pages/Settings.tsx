@@ -7,9 +7,10 @@ type Field = { path: string; label: string; help?: string; kind?: "num" | "int" 
 
 const SECTIONS: { title: string; fields: Field[] }[] = [
   {
-    title: "Objectif quotidien (Daily Profit Goal Manager)",
+    title: "Objectif de gain (journalier ou mensuel)",
     fields: [
       { path: "daily_goal.enabled", label: "Objectif actif", kind: "bool" },
+      { path: "daily_goal.period", label: "Période", kind: "select", options: [["day", "par JOUR (repart chaque jour à 0 h UTC)"], ["month", "par MOIS (repart le 1er du mois, UTC)"]] },
       { path: "daily_goal.amount", label: "Montant (devise du compte)", step: 0.5 },
       { path: "daily_goal.basis", label: "Nature", kind: "select", options: [["net", "NET (après commission, swap, frais)"], ["gross", "BRUT (avant coûts)"]] },
       { path: "daily_goal.policy", label: "Une fois atteint", kind: "select", options: [["stop_entries", "arrêter les nouvelles entrées"], ["protect_gains", "continuer en protégeant le gain"], ["track_only", "suivre seulement"]] },

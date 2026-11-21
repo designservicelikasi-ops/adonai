@@ -186,7 +186,13 @@ async fn local_engine_start(app: AppHandle, state: State<'_, AppState>, simulato
     if !config.exists() {
         let data = dir.join("data");
         let toml = format!(
-            "# Moteur local d'AEGIS Desktop (créé automatiquement).\n[engine]\ndata_dir = {:?}\n\n[api]\nenabled = true\nlisten = \"127.0.0.1:{LOCAL_PORT}\"\ntls = true\n",
+            "# Moteur local d'AEGIS Desktop (créé automatiquement).\n\
+             # Les réglages modifiés dans l'application (risque, objectif, cerveau) priment sur ce fichier.\n\
+             [engine]\ndata_dir = {:?}\nsignal_timeframes = [\"M1\", \"M5\"]\nhistory_bars = 5000\n\n\
+             [api]\nenabled = true\nlisten = \"127.0.0.1:{LOCAL_PORT}\"\ntls = true\n\n\
+             [risk]\nmin_net_expected_profit = 0.01\n\n\
+             [risk.daily_goal]\npolicy = \"protect_gains\"\n\n\
+             [brain]\nenabled = true\nsymbols = [\"EURUSD\"]\nmin_net_win = 0.08\nmax_net_win = 2.0\n",
             data.display().to_string()
         );
         std::fs::write(&config, toml).map_err(err)?;

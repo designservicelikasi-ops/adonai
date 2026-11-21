@@ -303,6 +303,8 @@ pub struct EngineView {
     pub shadow: Option<aegis_shadow::ShadowReport>,
     /// Copies the shadow could not take (queue full): its view may be incomplete.
     pub shadow_dropped: u64,
+    /// Micro-profit brain: targets chosen, lessons learned, versions proposed.
+    pub brain: BrainView,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,
@@ -332,6 +334,70 @@ pub struct EngineView {
     pub logs: Vec<LogLine>,
     pub audit: Vec<AuditEntry>,
     pub data: DataStats,
+}
+
+/// The brain's decision for one signal.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainChoiceView {
+    pub ts_ms: TimestampMs,
+    pub decision_id: String,
+    pub symbol: String,
+    pub timeframe: Timeframe,
+    pub strategy_id: String,
+    pub side: Side,
+    pub session: String,
+    /// A target was chosen AND the trade was approved.
+    pub traded: bool,
+    pub reason: String,
+    pub strategy_tp_distance: f64,
+    /// Stop distance used (the user's SL in pips, or the strategy's).
+    pub sl_distance: f64,
+    pub tried: usize,
+    pub in_range: usize,
+    pub chosen: Option<aegis_brain::TargetCandidate>,
+    pub best: Option<aegis_brain::TargetCandidate>,
+}
+
+/// A retrained probability model that did better than the active one on unseen
+/// data. Stored inactive: it is used only once the user activates it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainCandidate {
+    pub model_id: String,
+    pub symbol: String,
+    pub timeframe: Timeframe,
+    pub created_ms: TimestampMs,
+    pub bars_trained: usize,
+    pub score: aegis_probability::HoldoutScore,
+    pub active_model_id: Option<String>,
+    pub active_score: Option<aegis_probability::HoldoutScore>,
+    pub verdict: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainRetrainResult {
+    pub ts_ms: TimestampMs,
+    pub symbol: String,
+    pub timeframe: Timeframe,
+    pub proposed: bool,
+    pub outcome: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BrainView {
+    pub enabled: bool,
+    pub config: aegis_brain::BrainConfig,
+    /// Instruments of the connected terminal the brain trades.
+    pub symbols: Vec<String>,
+    pub lessons: Vec<aegis_brain::Lessons>,
+    /// Most recent first.
+    pub choices: Vec<BrainChoiceView>,
+    pub candidates: Vec<BrainCandidate>,
+    pub retraining: bool,
+    pub last_retrain_ms: Option<TimestampMs>,
+    pub next_retrain_ms: Option<TimestampMs>,
+    pub retrain_log: Vec<BrainRetrainResult>,
+    /// Settings that prevent the brain from working as intended.
+    pub warnings: Vec<String>,
 }
 
 impl EngineView {
