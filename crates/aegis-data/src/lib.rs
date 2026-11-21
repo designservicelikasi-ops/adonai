@@ -81,7 +81,9 @@ impl Store {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Full)
             .foreign_keys(true)
-            .busy_timeout(Duration::from_secs(2));
+            // Slow disks (Windows, VPS) can hold a write lock for a few seconds; giving up
+            // early would mark the database as failed and block every entry.
+            .busy_timeout(Duration::from_secs(10));
         let pool = SqlitePoolOptions::new().max_connections(4).connect_with(opts).await?;
         MIGRATOR.run(&pool).await?;
         Ok(Store { pool, audit_lock: Default::default(), path: Some(path.to_path_buf()) })

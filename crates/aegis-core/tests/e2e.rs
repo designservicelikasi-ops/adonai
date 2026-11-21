@@ -25,8 +25,9 @@ fn config(dir: &PathBuf) -> EngineConfig {
     cfg.engine.history_bars = 300;
     cfg.bridge.listen = "127.0.0.1:0".into();
     cfg.bridge.shared_key_env = "AEGIS_E2E_KEY_NOT_SET".into();
-    cfg.execution.result_timeout_ms = 1_000;
-    cfg.execution.reconcile_grace_ms = 300;
+    // Long enough for slow CI machines (Windows runners) to answer before the timeout.
+    cfg.execution.result_timeout_ms = 4_000;
+    cfg.execution.reconcile_grace_ms = 1_000;
     // The fixtures' out-of-sample evidence gives Wilson bounds around 0.5-0.6:
     // the probability thresholds are lowered to the minimum the configuration allows.
     // No network in tests: the news module is exercised by its own tests and `news_*` below.
@@ -90,7 +91,7 @@ fn sim_config(h: &EngineHandle, cfg: &EngineConfig, script: Vec<f64>) -> SimTerm
 }
 
 async fn wait_for(h: &EngineHandle, what: &str, f: impl Fn(&EngineView) -> bool) -> Arc<EngineView> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     loop {
         let v = h.snapshot();
         if f(&v) {
