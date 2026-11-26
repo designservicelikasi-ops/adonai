@@ -1102,3 +1102,33 @@ async fn every_decision_studies_the_net_targets_and_the_recovery_rules() {
     r.sim.stop().await;
     r.h.shutdown().await;
 }
+
+// ------------------------------------------------------------------ Fast Learning (0.3)
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn parameter_research_runs_in_parallel_proposes_only_and_data_is_audited() {
+    let r = rig("sweep", 100_000, false).await;
+    let h = &r.h;
+    must(h, Command::GenerateSynthetic { symbol: SIM_SYMBOL.into(), timeframe: Timeframe::M15, bars: 4_000, seed: 3 }).await;
+    let audit = must(h, Command::AuditData { symbol: SIM_SYMBOL.into(), timeframe: Timeframe::M15, origin: DataOrigin::Synthetic }).await;
+    assert!(audit.contains("4000 bougies") || audit.contains("bougies"), "{audit}");
+    let before = h.snapshot().strategies.iter().find(|s| s.meta.id == "donchian_breakout").unwrap().config.clone();
+    let mut grid = std::collections::BTreeMap::new();
+    grid.insert("period".to_string(), vec![json!(10), json!(20), json!(30)]);
+    grid.insert("sl_atr".to_string(), vec![json!(1.5), json!(2.5)]);
+    let msg = must(h, Command::RunParameterSweep { strategy_id: "donchian_breakout".into(), symbol: SIM_SYMBOL.into(), timeframe: Timeframe::M15, origin: DataOrigin::Synthetic, grid, folds: 4, threads: 3 }).await;
+    assert!(msg.contains("6 combinaison"), "{msg}");
+    let v = wait_for(h, "sweep and audit visible", |v| !v.learning.sweeps.is_empty() && !v.learning.audits.is_empty()).await;
+    let s = &v.learning.sweeps[0];
+    assert!(s.threads >= 1 && s.threads <= 3);
+    // The running simulator may have closed a few more bars: the sweep and the audit see the same history.
+    assert!(s.in_sample_bars + s.holdout_bars >= 4_000);
+    assert!(v.learning.audits[0].3.bars >= 4_000);
+    // A sweep proposes; it never changes the strategy.
+    let after = v.strategies.iter().find(|s| s.meta.id == "donchian_breakout").unwrap().config.clone();
+    assert_eq!(before, after);
+    // Synthetic data is refused for a real instrument name.
+    assert!(h.command(Command::RunParameterSweep { strategy_id: "donchian_breakout".into(), symbol: "EURUSD".into(), timeframe: Timeframe::M15, origin: DataOrigin::Synthetic, grid: Default::default(), folds: 4, threads: 1 }).await.is_err());
+    r.sim.stop().await;
+    r.h.shutdown().await;
+}

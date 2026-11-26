@@ -187,6 +187,13 @@ keep = 200
 [micro]                          # Micro-Profit 2.0 : objectifs nets étudiés pour chaque décision
 targets = [0.05, 0.08, 0.10, 0.15, 0.20, 0.30, 0.50]
 
+[models]                         # Fast Learning (voir docs/FAST_LEARNING.md)
+auto_rollback = true             # modèle en dérive sur les transactions réelles : version précédente ou retrait
+drift_min_trades = 30
+drift_brier_tolerance = 0.08
+research_threads = 4             # jamais plus que les cœurs - 1
+max_sweep_combinations = 400
+
 [autonomy]                       # AEGIS AUTONOMY COMMANDER (voir docs/AUTONOMY.md)
 default_profile = "research_autonomy"  # sans autorisation : "observer" (aucune recherche automatique) ou "research_autonomy"
 live_default_hours = 8           # durée d'une autorisation LIVE donnée par set_mode (1..168 h)

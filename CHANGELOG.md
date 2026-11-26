@@ -2,6 +2,15 @@
 
 ## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
 
+### Phase 6 — Fast Learning
+
+- Recherche de paramètres parallèle bornée (`run_parameter_sweep`) : classement en
+  apprentissage par walk-forward, contrôle hors échantillon seulement rapporté, drapeaux
+  sur-apprentissage / instabilité ; propose sans jamais modifier une stratégie.
+- Audit des données (`audit_data`) : trous hors week-end, doublons, aberrations, verdict.
+- Dérive des modèles de probabilité jugée sur les transactions réelles ; retour automatique à
+  la version précédente ou retrait. Section `[models]`, section `learning` de l'état.
+
 ### Phase 5 — Micro-Profit 2.0, Recovery & Hedge
 
 - Faisabilité de chaque objectif net (`[micro] targets`) après tous les coûts, avec la

@@ -14,6 +14,10 @@ use tokio::sync::oneshot;
 
 pub type Reply = Result<String, String>;
 
+fn default_folds() -> usize {
+    4
+}
+
 /// Phrase the user must type, with the account number, to arm LIVE AUTO.
 pub const LIVE_CONFIRMATION_PHRASE: &str = "J'ACCEPTE LE RISQUE REEL";
 
@@ -92,6 +96,20 @@ pub enum Command {
     },
     /// Profile without a grant: observer or research_autonomy.
     SetDefaultProfile { profile: aegis_autonomy::Profile },
+    /// Parallel parameter research (walk-forward in-sample, holdout reported). Proposes only.
+    RunParameterSweep {
+        strategy_id: String,
+        symbol: String,
+        timeframe: Timeframe,
+        origin: DataOrigin,
+        grid: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
+        #[serde(default = "default_folds")]
+        folds: usize,
+        #[serde(default)]
+        threads: usize,
+    },
+    /// Data quality audit of a stored history.
+    AuditData { symbol: String, timeframe: Timeframe, origin: DataOrigin },
     Shutdown,
 }
 
@@ -102,6 +120,7 @@ pub(crate) enum Internal {
     NewsFetched(Vec<Result<Vec<aegis_news::NewsEvent>, String>>),
     ProbabilityDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<aegis_probability::ProbabilityModel>, String> },
     BrainRetrained { reply: Option<oneshot::Sender<Reply>>, results: Vec<crate::brain::RetrainOutcome> },
+    SweepDone { reply: oneshot::Sender<Reply>, outcome: Result<Box<aegis_backtest::sweep::SweepReport>, String> },
 }
 
 fn seg_view(s: &SegmentResult) -> BacktestSegmentView {
@@ -116,6 +135,11 @@ impl Engine {
                 if let Err(e) = self.start_backtest(strategy_id, symbol, timeframe, origin, params, reply).await {
                     self.log("warn", "backtest", e);
                 }
+                return;
+            }
+            Command::RunParameterSweep { strategy_id, symbol, timeframe, origin, grid, folds, threads } => {
+                let req = aegis_backtest::sweep::SweepRequest { strategy_id, base_config: serde_json::Value::Null, grid, folds, in_sample_frac: 0.7, max_threads: if threads == 0 { usize::MAX } else { threads }, max_combinations: 0 };
+                self.start_sweep(req, symbol, timeframe, origin, reply).await;
                 return;
             }
             Command::TrainProbability { symbol, timeframe, origin } => {
@@ -156,6 +180,7 @@ impl Engine {
                 })
             }
             Command::SetDefaultProfile { profile } => self.set_default_profile(profile).await,
+            Command::AuditData { symbol, timeframe, origin } => self.cmd_audit_data(&symbol, timeframe, origin).await,
             Command::Kill { reason } => {
                 let reason = if reason.trim().is_empty() { "arrêt manuel".to_string() } else { reason };
                 self.engage_kill(&reason, "user").await;
@@ -505,6 +530,10 @@ impl Engine {
                 }
             }
             Internal::NewsFetched(results) => self.on_news(results).await,
+            Internal::SweepDone { reply, outcome } => {
+                self.on_sweep_done(reply, outcome).await;
+                self.publish().await;
+            }
             Internal::BrainRetrained { reply, results } => {
                 let out = self.on_brain_retrained(results).await;
                 self.publish().await;

@@ -14,6 +14,7 @@
 
 pub mod csv;
 pub mod synthetic;
+pub mod sweep;
 
 use aegis_strategy::{window, OpenView, Strategy, StrategyAction};
 use aegis_types::{utc_day, Candle, Side, SymbolSpec, Timeframe, TimestampMs};

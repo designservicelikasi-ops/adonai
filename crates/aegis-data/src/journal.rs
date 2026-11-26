@@ -272,6 +272,12 @@ impl Store {
         Ok(Some(ProbabilityModelRow { active: true, ..row }))
     }
 
+    /// Retire a version (automatic rollback without a previous version).
+    pub async fn deactivate_probability_model(&self, model_id: &str) -> DataResult<()> {
+        sqlx::query("UPDATE probability_models SET active = 0 WHERE model_id = ?").bind(model_id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     /// All versions, newest first; `Some(true)` = active ones only.
     pub async fn probability_models(&self, active: Option<bool>) -> DataResult<Vec<ProbabilityModelRow>> {
         let rows = sqlx::query("SELECT * FROM probability_models ORDER BY created_ms DESC").fetch_all(&self.pool).await?;

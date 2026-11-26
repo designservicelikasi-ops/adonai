@@ -108,6 +108,7 @@ pub(crate) struct Engine {
     pub protection: aegis_risk::ProtectionGuard,
     pub commander: aegis_autonomy::Commander,
     pub scanner: crate::scanner::ScannerState,
+    pub learning: crate::learning::LearningState,
     /// Latest micro-profit feasibility table per instrument.
     pub micro_tables: std::collections::BTreeMap<String, crate::recovery::MicroTable>,
     /// Ticket -> stop planned at the decision (what the guard re-installs), persisted.
@@ -345,6 +346,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         protection: Default::default(),
         commander: aegis_autonomy::Commander::new(cfg.autonomy.default_profile),
         scanner: Default::default(),
+        learning: Default::default(),
         micro_tables: Default::default(),
         planned_sl,
         latency: Default::default(),
@@ -469,6 +471,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         autonomy: Default::default(),
         scanner: Default::default(),
         micro_targets: Vec::new(),
+        learning: Default::default(),
         recovery: Default::default(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
@@ -1075,6 +1078,7 @@ impl Engine {
         }
         if let Ok(closed) = self.store.journal_closed_since(now - 400 * 86_400_000, 1_000_000).await {
             self.cache.performance = crate::performance::compute(&closed, now);
+            self.check_model_drift(&closed).await;
             let closed: Vec<_> = closed.into_iter().filter(|e| e.closed_ms.unwrap_or(0) >= now - 90 * 86_400_000).collect();
             let preds: Vec<(f64, f64)> = closed.iter().filter_map(|e| e.probability.map(|p| (p, if e.net > 0.0 { 1.0 } else { 0.0 }))).collect();
             self.cache.probability_live = (!preds.is_empty()).then(|| aegis_probability::metrics::reliability(&preds, &vec![0; preds.len()]));
@@ -1264,6 +1268,7 @@ impl Engine {
             autonomy: self.autonomy_view(),
             scanner: self.scanner_view(),
             micro_targets: self.micro_tables.values().cloned().collect(),
+            learning: self.learning_view(),
             recovery: crate::recovery::recovery_report(&self.cache.journal),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),

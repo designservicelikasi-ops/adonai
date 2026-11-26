@@ -7,6 +7,7 @@ pub mod regime;
 pub mod structure;
 pub mod mtf;
 pub mod scanner;
+pub mod audit;
 
 pub use candles::{aggregate, CandleBuilder, CandleSeries};
 pub use regime::{detect_regime, detect_regime_detail, session_at, RegimeDetail, RegimeKind, RegimeReading, Session, VolatilityDynamics, VolatilityLevel};

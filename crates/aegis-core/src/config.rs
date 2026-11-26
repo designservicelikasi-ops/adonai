@@ -169,6 +169,8 @@ pub struct EngineConfig {
     pub intelligence: crate::scanner::IntelligenceSection,
     /// Micro-Profit 2.0: net targets studied for every decision.
     pub micro: crate::recovery::MicroSection,
+    /// Model drift guard and research resources.
+    pub models: crate::learning::ModelsSection,
     pub retention: RetentionSection,
 }
 
@@ -203,6 +205,7 @@ impl EngineConfig {
         self.brain.validate().map_err(ConfigLoadError::Invalid)?;
         self.intelligence.validate().map_err(ConfigLoadError::Invalid)?;
         self.micro.validate().map_err(ConfigLoadError::Invalid)?;
+        self.models.validate().map_err(ConfigLoadError::Invalid)?;
         if self.autonomy.default_profile.needs_grant() {
             return bad("autonomy.default_profile must be observer or research_autonomy (trading profiles need an explicit grant)".into());
         }

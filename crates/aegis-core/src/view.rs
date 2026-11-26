@@ -320,6 +320,9 @@ pub struct EngineView {
     /// Recovery & Hedge analytics from the journal (0.3).
     #[serde(default)]
     pub recovery: crate::recovery::RecoveryReport,
+    /// Fast Learning: sweeps, data audits, live drift of the models, rollbacks (0.3).
+    #[serde(default)]
+    pub learning: crate::learning::LearningView,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

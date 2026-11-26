@@ -10,6 +10,7 @@ mod decide;
 mod engine;
 mod guardian;
 mod intel;
+pub mod learning;
 pub mod latency;
 pub mod performance;
 mod shadowlink;

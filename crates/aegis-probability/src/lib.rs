@@ -244,7 +244,7 @@ impl SideModel {
             Selected::None => None,
         }
     }
-    fn report(&self) -> Option<&CalibrationReport> {
+    pub fn report(&self) -> Option<&CalibrationReport> {
         match self.selected {
             Selected::Full => Some(&self.full_report),
             Selected::ScenarioOnly => Some(&self.baseline_report),
