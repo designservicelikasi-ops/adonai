@@ -2,6 +2,15 @@
 
 ## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
 
+### Phase 5 — Micro-Profit 2.0, Recovery & Hedge
+
+- Faisabilité de chaque objectif net (`[micro] targets`) après tous les coûts, avec la
+  probabilité calibrée de la cible et la raison d'un refus.
+- Règles de récupération (`[risk.recovery]`) : anti-moyenne, anti-martingale (risque ET
+  volume), re-entry sur nouvelle bougie et nouvelle structure, plafond quotidien, couverture
+  unique et jamais plus grosse que la position. Type d'entrée et position liée au journal.
+- Analyses Recovery & Hedge (section `recovery`). `docs/RECOVERY_HEDGE.md`.
+
 ### Phase 4 — Régimes, multi-unités, structure, scanner
 
 - Régimes détaillés (tendance, transition, consolidation, latéral, désordonné ; niveau et

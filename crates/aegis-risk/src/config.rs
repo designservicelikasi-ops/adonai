@@ -111,6 +111,8 @@ pub struct RiskConfig {
     pub missing_stop_grace_ms: i64,
     /// Choice of the initial stop (strategy / structural / volatility).
     pub stops: crate::stops::StopPolicy,
+    /// Re-entry after a loss and hedging rules (no martingale, no grid, no averaging down).
+    pub recovery: crate::recovery::RecoveryPolicy,
 }
 
 impl Default for RiskConfig {
@@ -156,6 +158,7 @@ impl Default for RiskConfig {
             missing_stop_policy: MissingStopPolicy::Restore,
             missing_stop_grace_ms: 5_000,
             stops: Default::default(),
+            recovery: Default::default(),
         }
     }
 }
@@ -231,6 +234,7 @@ impl RiskConfig {
             return Err(ConfigError { field: "authorization_ttl_ms", problem: "must be within 500..60000 ms" });
         }
         self.stops.validate()?;
+        self.recovery.validate()?;
         if !(1_000..=120_000).contains(&self.missing_stop_grace_ms) {
             return Err(ConfigError { field: "missing_stop_grace_ms", problem: "must be within 1000..120000 ms" });
         }

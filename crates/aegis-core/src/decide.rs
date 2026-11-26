@@ -280,6 +280,11 @@ impl Engine {
             };
             self.risk.evaluate(&proposal, &ctx)
         };
+        // ---- recovery & hedge: a second position is a new risk, never a martingale.
+        let recovery = self.recovery_assessment(symbol, tf, intent.side, bar_ts, assessment.volume, assessment.risk_amount, now).await;
+        checks.extend(recovery.checks.iter().cloned());
+        // ---- micro-profit 2.0: feasibility of every configured net target for this trade.
+        self.note_micro_targets(symbol, tf, intent.side, assessment.volume, entry, sl, now);
         let engine_ok = checks.iter().all(|c| c.passed);
         if !engine_ok {
             // An authorization minted while an engine-level check failed must not exist.
@@ -355,6 +360,8 @@ impl Engine {
                             seed.probability_raw = probability_raw;
                             seed.brain = brain_view.is_some();
                             seed.regime_detail = regime_detail.kind.as_str().to_string();
+                            seed.entry_kind = recovery.kind.as_str().to_string();
+                            seed.related_ticket = recovery.kind.related();
                             seed.stop_role = stop_plan.as_ref().map(|p| serde_json::to_value(p.role).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()).unwrap_or_default();
                             self.journal_seeds.insert(cid.clone(), seed);
                             let spread_cost = dv.assessment.micro.as_ref().map(|m| m.costs.spread).unwrap_or(0.0);

@@ -111,6 +111,85 @@ pub fn evaluate_micro_profit(
     }
 }
 
+/// Can a given NET target be reached on this trade, after every cost?
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TargetFeasibility {
+    /// Net gain wanted if the target is reached (account currency).
+    pub target_net: f64,
+    /// Distance from the fill price to the take-profit that pays exactly `target_net`.
+    pub tp_distance: f64,
+    pub tp_points: f64,
+    /// Gross (mid-to-mid) gain needed.
+    pub gross_needed: f64,
+    pub costs: CostBreakdown,
+    pub net_if_loss: f64,
+    /// Calibrated probability for that take-profit, when a model provides one.
+    pub probability: Option<f64>,
+    pub probability_source: String,
+    pub expected_net: Option<f64>,
+    pub breakeven_probability: f64,
+    pub feasible: bool,
+    pub reason: String,
+}
+
+/// Feasibility of each net target for a trade of `volume` with stop `sl`.
+/// `probability(tp_distance)` returns a calibrated probability (and its source) or None.
+#[allow(clippy::too_many_arguments)]
+pub fn target_feasibility(
+    spec: &SymbolSpec,
+    cfg: &RiskConfig,
+    side: Side,
+    volume: f64,
+    entry: f64,
+    sl: f64,
+    spread_price: f64,
+    targets: &[f64],
+    probability: &dyn Fn(f64) -> (Option<f64>, String),
+) -> Vec<TargetFeasibility> {
+    let per_price = spec.price_distance_value(1.0, volume);
+    let mut out = Vec::new();
+    for &target in targets {
+        if !(target.is_finite() && target > 0.0 && volume > 0.0 && per_price > 0.0) {
+            continue;
+        }
+        // Costs that do not depend on the gross, then the conversion fee proportional to it.
+        let fixed = estimate_costs(spec, cfg, side, volume, spread_price, 0.0);
+        let rate = cfg.conversion_fee_pct / 100.0;
+        let gross = (target + fixed.total()) / (1.0 - rate).max(1e-9);
+        let win_dist = gross / per_price;
+        let tp_distance = (win_dist - spread_price.max(0.0)).max(0.0);
+        let tp = entry + side.sign() * tp_distance;
+        let ev = evaluate_micro_profit(spec, cfg, side, volume, entry, sl, tp, spread_price, None, "");
+        let (p, src) = probability(tp_distance);
+        let expected = p.map(|p| p * ev.net_if_win + (1.0 - p) * ev.net_if_loss);
+        let min_dist = spec.stops_level_points * spec.point;
+        let (feasible, reason) = if tp_distance < min_dist || tp_distance <= 0.0 {
+            (false, format!("cible à {:.1} points: sous la distance minimale du broker ({:.0} points)", tp_distance / spec.point, spec.stops_level_points))
+        } else if p.is_none() {
+            (false, format!("aucune probabilité calibrée pour une cible à {:.1} points ({src})", tp_distance / spec.point))
+        } else if expected.is_some_and(|e| e < cfg.min_net_expected_profit || e <= 0.0) {
+            (false, format!("espérance nette {:.2} insuffisante (probabilité nécessaire {:.0} %)", expected.unwrap_or(0.0), ev.breakeven_probability * 100.0))
+        } else {
+            (true, format!("espérance nette {:.2} après {:.2} de coûts", expected.unwrap_or(0.0), ev.costs.total()))
+        };
+        out.push(TargetFeasibility {
+            target_net: target,
+            tp_distance,
+            tp_points: tp_distance / spec.point,
+            gross_needed: ev.gross_win,
+            costs: ev.costs,
+            net_if_loss: ev.net_if_loss,
+            probability: p,
+            probability_source: src,
+            expected_net: expected,
+            breakeven_probability: ev.breakeven_probability,
+            feasible,
+            reason,
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +249,33 @@ mod tests {
             assert!(e.expected_net.is_none());
             assert!(e.win_probability.is_none());
         }
+    }
+
+    #[test]
+    fn each_net_target_is_solved_after_every_cost() {
+        let spec = eurusd();
+        let cfg = RiskConfig { commission_per_lot_round_turn: 7.0, expected_slippage_points: 2.0, min_net_expected_profit: 0.01, ..Default::default() };
+        let prob = |d: f64| if d < 0.0005 { (Some(0.8), "test".to_string()) } else { (None, "hors grille".to_string()) };
+        let rows = target_feasibility(&spec, &cfg, Side::Buy, 0.01, 1.10010, 1.09810, 0.00010, &[0.05, 0.10, 0.50, 5.0], &prob);
+        assert_eq!(rows.len(), 4);
+        for r in &rows {
+            // The take-profit found pays exactly the target after costs.
+            let ev = evaluate_micro_profit(&spec, &cfg, Side::Buy, 0.01, 1.10010, 1.09810, 1.10010 + r.tp_distance, 0.00010, None, "");
+            if r.tp_distance > 0.0 {
+                assert!((ev.net_if_win - r.target_net).abs() < 1e-6, "{} vs {}", ev.net_if_win, r.target_net);
+            }
+        }
+        // 0.05 net on 0.01 lot needs a tiny move: below the broker's stops level (10 points).
+        // 0.05 net on 0.01 lot with a 200-point stop: the target is reachable (14 points after
+        // 0.19 of costs) but breaking even would need ~98 % of wins: refused, with the reason.
+        assert!(!rows[0].feasible && rows[0].reason.contains("insuffisante"), "{}", rows[0].reason);
+        assert!(rows[0].breakeven_probability > 0.95);
+        // With a broker stops level of 30 points, the same target is simply too close.
+        let wide = SymbolSpec { stops_level_points: 30.0, ..eurusd() };
+        let r = target_feasibility(&wide, &cfg, Side::Buy, 0.01, 1.10010, 1.09810, 0.00010, &[0.05], &prob);
+        assert!(!r[0].feasible && r[0].reason.contains("distance minimale"), "{}", r[0].reason);
+        // A far target has no calibrated probability: not feasible, and said so.
+        assert!(!rows[3].feasible && rows[3].probability.is_none());
+        assert!(rows.iter().all(|r| r.costs.commission > 0.0));
     }
 }

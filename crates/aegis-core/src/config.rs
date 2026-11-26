@@ -167,6 +167,8 @@ pub struct EngineConfig {
     pub autonomy: AutonomySection,
     /// Market regime, multi-timeframe and opportunity scanner settings.
     pub intelligence: crate::scanner::IntelligenceSection,
+    /// Micro-Profit 2.0: net targets studied for every decision.
+    pub micro: crate::recovery::MicroSection,
     pub retention: RetentionSection,
 }
 
@@ -200,6 +202,7 @@ impl EngineConfig {
         self.news.validate().map_err(ConfigLoadError::Invalid)?;
         self.brain.validate().map_err(ConfigLoadError::Invalid)?;
         self.intelligence.validate().map_err(ConfigLoadError::Invalid)?;
+        self.micro.validate().map_err(ConfigLoadError::Invalid)?;
         if self.autonomy.default_profile.needs_grant() {
             return bad("autonomy.default_profile must be observer or research_autonomy (trading profiles need an explicit grant)".into());
         }

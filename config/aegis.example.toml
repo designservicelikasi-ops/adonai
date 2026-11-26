@@ -80,6 +80,13 @@ max_atr = 4.0
 min_spreads = 3.0
 keep_reward_ratio = true
 
+[risk.recovery]                  # Seconde position : jamais une martingale (voir docs/RECOVERY_HEDGE.md)
+reentry_window_minutes = 60      # une entrée après une perte récente sur l'instrument est une re-entry
+reentry_requires_new_structure = true
+max_reentries_per_symbol_per_day = 2
+max_hedges_per_position = 1
+max_hedge_ratio = 1.0            # couverture <= volume couvert
+
 [risk.daily_goal]                # Objectif de gain — un objectif, jamais une promesse
 enabled = true
 period = "day"                   # "day" (chaque jour, 0 h UTC) ou "month" (mois civil, UTC)
@@ -176,6 +183,9 @@ require_mtf_alignment = false    # refuser une entrée contredite par le context
 block_chaotic = true             # aucune entrée dans un marché désordonné
 transition_probability_margin = 0.0  # en transition de tendance, probabilité exigée + marge (recommandé : 0.05)
 keep = 200
+
+[micro]                          # Micro-Profit 2.0 : objectifs nets étudiés pour chaque décision
+targets = [0.05, 0.08, 0.10, 0.15, 0.20, 0.30, 0.50]
 
 [autonomy]                       # AEGIS AUTONOMY COMMANDER (voir docs/AUTONOMY.md)
 default_profile = "research_autonomy"  # sans autorisation : "observer" (aucune recherche automatique) ou "research_autonomy"

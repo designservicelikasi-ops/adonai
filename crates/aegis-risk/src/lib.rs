@@ -8,6 +8,7 @@ mod engine;
 mod goal;
 mod position;
 mod protection;
+pub mod recovery;
 mod stops;
 
 pub use auth::{AuthError, Authorization};
@@ -16,7 +17,7 @@ pub use position::{manage as manage_position, ManagedPosition, PositionAction, P
 pub use stops::{plan_stop, StopCandidate, StopMode, StopPlan, StopPolicy, StopRole};
 pub use protection::{ExpectedLevels, ProtectionAction, ProtectionGuard, ProtectionIncident, MAX_RESTORE_ATTEMPTS, MODIFY_VERIFY_MS};
 pub use goal::{goal_status, DailyGoal, GoalBasis, GoalPeriod, GoalPolicy, GoalStatus};
-pub use costs::{estimate_costs, evaluate_micro_profit, CostBreakdown, MicroProfitEvaluation};
+pub use costs::{estimate_costs, evaluate_micro_profit, target_feasibility, CostBreakdown, MicroProfitEvaluation, TargetFeasibility};
 pub use day::{drawdown_pct, floating_pnl, DayStats};
 pub use engine::{
     currencies_of, per_lot_loss, size_volume, size_volume_scaled, Check, KillPlan, KillSwitchState, RiskAssessment, RiskContext, RiskEngine, TradeProposal,

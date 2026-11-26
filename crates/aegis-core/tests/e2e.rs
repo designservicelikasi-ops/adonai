@@ -1080,3 +1080,25 @@ async fn the_scanner_reads_every_timeframe_scores_separately_from_probability_an
     r.sim.stop().await;
     r.h.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_decision_studies_the_net_targets_and_the_recovery_rules() {
+    let r = rig("micro-recovery", 60, true).await;
+    let v = wait_for(&r.h, "breakout decision with its target table", |v| breakout_decision(v).is_some() && !v.micro_targets.is_empty()).await;
+    let d = breakout_decision(&v).unwrap();
+    assert!(d.engine_checks.iter().any(|c| c.name == "anti_moyenne"), "recovery rules are applied to every entry");
+    let t = v.micro_targets.iter().find(|t| t.symbol == SIM_SYMBOL).unwrap();
+    let targets: Vec<f64> = t.rows.iter().map(|r| r.target_net).collect();
+    assert_eq!(targets, vec![0.05, 0.08, 0.10, 0.15, 0.20, 0.30, 0.50]);
+    for row in &t.rows {
+        assert!(row.costs.commission > 0.0 && row.tp_distance >= 0.0);
+        // No calibrated scenario model in this test: never feasible, and the reason says why.
+        assert!(!row.feasible && !row.reason.is_empty());
+    }
+    // A first trade is a normal entry; the journal records its kind.
+    let v = wait_for(&r.h, "journal entry", |v| !v.journal.is_empty()).await;
+    assert_eq!(v.journal[0].entry_kind, "normal");
+    assert!(v.recovery.note.contains("trop peu"), "{}", v.recovery.note);
+    r.sim.stop().await;
+    r.h.shutdown().await;
+}

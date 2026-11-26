@@ -314,6 +314,12 @@ pub struct EngineView {
     /// Market regimes, multi-timeframe readings and scored opportunities (0.3).
     #[serde(default)]
     pub scanner: crate::scanner::ScannerView,
+    /// Micro-Profit 2.0: can each configured net target be reached after costs? (0.3)
+    #[serde(default)]
+    pub micro_targets: Vec<crate::recovery::MicroTable>,
+    /// Recovery & Hedge analytics from the journal (0.3).
+    #[serde(default)]
+    pub recovery: crate::recovery::RecoveryReport,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,
