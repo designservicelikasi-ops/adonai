@@ -323,6 +323,9 @@ pub struct EngineView {
     /// Fast Learning: sweeps, data audits, live drift of the models, rollbacks (0.3).
     #[serde(default)]
     pub learning: crate::learning::LearningView,
+    /// Multi-asset portfolio: instruments, correlations, exposure per currency (0.3).
+    #[serde(default)]
+    pub portfolio: crate::portfolio::PortfolioView,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

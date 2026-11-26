@@ -109,6 +109,7 @@ pub(crate) struct Engine {
     pub commander: aegis_autonomy::Commander,
     pub scanner: crate::scanner::ScannerState,
     pub learning: crate::learning::LearningState,
+    pub portfolio: crate::portfolio::PortfolioState,
     /// Latest micro-profit feasibility table per instrument.
     pub micro_tables: std::collections::BTreeMap<String, crate::recovery::MicroTable>,
     /// Ticket -> stop planned at the decision (what the guard re-installs), persisted.
@@ -347,6 +348,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         commander: aegis_autonomy::Commander::new(cfg.autonomy.default_profile),
         scanner: Default::default(),
         learning: Default::default(),
+        portfolio: Default::default(),
         micro_tables: Default::default(),
         planned_sl,
         latency: Default::default(),
@@ -393,6 +395,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         engine.deals.push_back(d);
     }
     engine.load_autonomy().await;
+    engine.load_portfolio().await;
     engine.load_probability_models().await;
     engine.load_brain().await;
     // First automatic backup one period after the last one (not at every restart).
@@ -472,6 +475,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         scanner: Default::default(),
         micro_targets: Vec::new(),
         learning: Default::default(),
+        portfolio: Default::default(),
         recovery: Default::default(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
@@ -1022,6 +1026,7 @@ impl Engine {
         self.maybe_fetch_news(now);
         self.persist_shadow(now).await;
         self.autonomy_tick().await;
+        self.portfolio_tick(now);
         self.brain_tick(now).await;
         self.run_ops(now).await;
         // The probe runs in the background so a stuck database never stalls the engine.
@@ -1269,6 +1274,7 @@ impl Engine {
             scanner: self.scanner_view(),
             micro_targets: self.micro_tables.values().cloned().collect(),
             learning: self.learning_view(),
+            portfolio: self.portfolio_view(now),
             recovery: crate::recovery::recovery_report(&self.cache.journal),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),

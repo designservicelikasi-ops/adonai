@@ -68,6 +68,8 @@ allow_hedging = false            # positions opposées sur un même instrument :
 max_observed_slippage_points = 0.0  # refus si le slippage médian récent dépasse cette valeur ; 0 = désactivé
 missing_stop_policy = "restore"  # position AEGIS sans SL chez le broker : "restore" | "close" | "alert"
 missing_stop_grace_ms = 5000     # délai laissé au broker pour montrer le stop
+max_correlated_risk_pct = 0.0    # risque des positions corrélées dans le même sens + la nouvelle ; 0 = 2 x risque par transaction
+correlation_threshold = 0.7      # |corrélation| à partir de laquelle deux instruments sont un même pari
 
 [risk.stops]                     # Choix du stop initial (le volume est toujours recalculé sur la distance)
 mode = "strategy"                # "strategy" (stop de la stratégie) | "adaptive" (structurel, sinon volatilité)

@@ -796,3 +796,29 @@ fn daily_risk_budget_weekdays_and_observed_slippage() {
     w.recent_slippage_points = Some(1.0);
     assert!(e.evaluate(&proposal("l2"), &w.ctx()).approved);
 }
+
+#[test]
+fn correlated_positions_are_one_exposure() {
+    let mut w = World::new();
+    w.specs.insert("GBPUSD".into(), SymbolSpec { symbol: "GBPUSD".into(), currency_base: "GBP".into(), ..eurusd() });
+    w.specs.insert("USDCHF".into(), SymbolSpec { symbol: "USDCHF".into(), currency_base: "USD".into(), currency_profit: "CHF".into(), ..eurusd() });
+    // An open GBPUSD BUY risking ~0.5 %, and a new EURUSD BUY risking ~0.5 %: limit 2 x 0.5 = 1 %.
+    let gbp = Position { symbol: "GBPUSD".into(), price_open: 1.1, sl: 1.09790, volume: 0.24, ..position(1, "GBPUSD", 0.24) };
+    w.positions = vec![gbp.clone()];
+    // Notional limits raised: this test isolates the correlation check.
+    let cfg = RiskConfig { max_open_positions: 5, max_correlated_risk_pct: 0.8, max_notional_leverage: 20.0, max_currency_exposure: 20.0, ..test_config() };
+    let mut e = RiskEngine::new(cfg.clone()).unwrap();
+    // Without a known correlation: independent.
+    let a = e.evaluate(&proposal("c1"), &w.ctx());
+    assert!(a.approved, "{}", a.rejection_summary());
+    e.set_correlations(std::collections::HashMap::from([(("EURUSD".to_string(), "GBPUSD".to_string()), 0.85)]));
+    assert_rejected_for(&e.evaluate(&proposal("c2"), &w.ctx()), "exposition_correlee");
+    // A SELL of EURUSD offsets a GBPUSD BUY: not the same bet.
+    let sell = TradeProposal { side: Side::Sell, sl: 1.10210, tp: 1.09610, ..proposal("c3") };
+    assert!(e.evaluate(&sell, &w.ctx()).checks.iter().any(|c| c.name == "exposition_correlee" && c.passed));
+    // Negative correlation: a USDCHF SELL is effectively a EURUSD BUY.
+    w.positions = vec![Position { symbol: "USDCHF".into(), side: Side::Sell, price_open: 1.1, sl: 1.10210, tp: 1.09, volume: 0.24, ..position(2, "USDCHF", 0.24) }];
+    let mut e = RiskEngine::new(cfg).unwrap();
+    e.set_correlations(std::collections::HashMap::from([(("USDCHF".to_string(), "EURUSD".to_string()), -0.9)]));
+    assert_rejected_for(&e.evaluate(&proposal("c4"), &w.ctx()), "exposition_correlee");
+}

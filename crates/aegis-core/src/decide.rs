@@ -123,6 +123,8 @@ impl Engine {
 
         // ---- engine-level checks (recorded with the decision)
         let mut checks = Vec::new();
+        let enabled = self.symbol_enabled(symbol);
+        checks.push(check("instrument_actif", enabled, if enabled { format!("{symbol} activé") } else { format!("{symbol} désactivé par l'utilisateur: aucune nouvelle entrée") }));
         checks.push(check("base_de_donnees", self.db_ok, if self.db_ok { "base accessible" } else { "base de données indisponible: aucune entrée possible" }));
         let stage_ok = match self.mode {
             Mode::Monitor => true,

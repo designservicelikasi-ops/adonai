@@ -113,6 +113,11 @@ pub struct RiskConfig {
     pub stops: crate::stops::StopPolicy,
     /// Re-entry after a loss and hedging rules (no martingale, no grid, no averaging down).
     pub recovery: crate::recovery::RecoveryPolicy,
+    /// Money at risk of positions on instruments correlated with the new one (same effective
+    /// direction) plus the new trade, in % of equity. 0 = automatic: 2 x `risk_per_trade_pct`.
+    pub max_correlated_risk_pct: f64,
+    /// |correlation| from which two instruments count as one exposure.
+    pub correlation_threshold: f64,
 }
 
 impl Default for RiskConfig {
@@ -159,6 +164,8 @@ impl Default for RiskConfig {
             missing_stop_grace_ms: 5_000,
             stops: Default::default(),
             recovery: Default::default(),
+            max_correlated_risk_pct: 0.0,
+            correlation_threshold: 0.7,
         }
     }
 }
@@ -235,6 +242,10 @@ impl RiskConfig {
         }
         self.stops.validate()?;
         self.recovery.validate()?;
+        if self.max_correlated_risk_pct != 0.0 {
+            range("max_correlated_risk_pct", self.max_correlated_risk_pct, 0.01, 50.0, "must be 0 (automatic) or within 0.01..50 %")?;
+        }
+        range("correlation_threshold", self.correlation_threshold, 0.3, 0.99, "must be within 0.3..0.99")?;
         if !(1_000..=120_000).contains(&self.missing_stop_grace_ms) {
             return Err(ConfigError { field: "missing_stop_grace_ms", problem: "must be within 1000..120000 ms" });
         }

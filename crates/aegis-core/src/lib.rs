@@ -17,6 +17,7 @@ mod shadowlink;
 pub mod ops;
 pub mod logging;
 mod positions;
+pub mod portfolio;
 pub mod recovery;
 pub mod scanner;
 pub mod view;

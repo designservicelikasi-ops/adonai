@@ -1132,3 +1132,35 @@ async fn parameter_research_runs_in_parallel_proposes_only_and_data_is_audited()
     r.sim.stop().await;
     r.h.shutdown().await;
 }
+
+// ------------------------------------------------------------------ Multi-asset (0.3)
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_disabled_instrument_takes_no_entry_and_the_portfolio_describes_each_instrument() {
+    let dir = temp_dir("portfolio");
+    let cfg = config(&dir);
+    seed_evidence(&dir, 60, 100).await;
+    let h = start(cfg.clone()).await.unwrap();
+    let sim = spawn(sim_config(&h, &cfg, breakout_script(60)));
+    wait_for(&h, "connected", |v| v.account.is_some() && !v.specs.is_empty()).await;
+    must(&h, Command::SetStrategyStage { id: "donchian_breakout".into(), stage: StrategyStage::Demo }).await;
+    must(&h, Command::SetSymbolEnabled { symbol: SIM_SYMBOL.into(), enabled: false }).await;
+    assert!(h.command(Command::SetSymbolEnabled { symbol: "UNKNOWN".into(), enabled: false }).await.is_err());
+    must(&h, Command::SetMode { mode: Mode::DemoAuto, confirmation: String::new() }).await;
+    let v = wait_for(&h, "breakout refused on the disabled instrument", |v| breakout_decision(v).is_some()).await;
+    let d = breakout_decision(&v).unwrap();
+    assert!(d.failures().iter().any(|f| f.starts_with("instrument_actif")), "{:?}", d.failures());
+    assert!(v.orders.is_empty());
+    let i = v.portfolio.instruments.iter().find(|i| i.symbol == SIM_SYMBOL).unwrap();
+    assert!(!i.enabled && i.category == "forex" && i.spec.volume_min > 0.0);
+    assert!(i.min_lot_margin.is_some_and(|m| m > 0.0));
+    sim.stop().await;
+    h.shutdown().await;
+    // The choice survives a restart.
+    let h = start(cfg.clone()).await.unwrap();
+    let sim = spawn(sim_config(&h, &cfg, breakout_script(100_000)));
+    let v = wait_for(&h, "portfolio after restart", |v| !v.portfolio.instruments.is_empty()).await;
+    assert!(!v.portfolio.instruments[0].enabled);
+    sim.stop().await;
+    h.shutdown().await;
+}

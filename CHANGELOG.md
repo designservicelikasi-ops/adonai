@@ -2,6 +2,14 @@
 
 ## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
 
+### Phase 7 — Multi-actifs
+
+- Global Exposure Manager : corrélations des rendements (H1, 15 min), contrôle
+  `exposition_correlee` (direction effective, corrélations négatives comprises).
+- Catalogue des instruments (spécifications, catégorie, marge du lot minimum, exposition,
+  actualités), activation par instrument (`set_symbol_enabled`, conservée), contrôle
+  `instrument_actif`. Section `portfolio` de l'état. `docs/MULTI_ASSET.md`.
+
 ### Phase 6 — Fast Learning
 
 - Recherche de paramètres parallèle bornée (`run_parameter_sweep`) : classement en

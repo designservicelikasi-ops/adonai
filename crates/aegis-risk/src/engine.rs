@@ -161,6 +161,8 @@ pub struct RiskEngine {
     kill: KillSwitchState,
     /// Times at which entry authorizations were consumed (rolling minute).
     sent: std::collections::VecDeque<TimestampMs>,
+    /// Return correlations between instruments, set by the engine (Global Exposure Manager).
+    correlations: HashMap<(String, String), f64>,
 }
 
 struct Checks(Vec<Check>);
@@ -182,11 +184,24 @@ impl RiskEngine {
             consumed: HashSet::new(),
             kill: KillSwitchState::default(),
             sent: std::collections::VecDeque::new(),
+            correlations: HashMap::new(),
         })
     }
 
     pub fn config(&self) -> &RiskConfig {
         &self.config
+    }
+
+    /// Replace the correlation table (symmetric pairs are looked up both ways).
+    pub fn set_correlations(&mut self, c: HashMap<(String, String), f64>) {
+        self.correlations = c;
+    }
+
+    pub fn correlation_of(&self, a: &str, b: &str) -> Option<f64> {
+        if a == b {
+            return Some(1.0);
+        }
+        self.correlations.get(&(a.to_string(), b.to_string())).or_else(|| self.correlations.get(&(b.to_string(), a.to_string()))).copied()
     }
 
     /// Replace the configuration. An invalid configuration is refused and the old one kept.
@@ -491,6 +506,7 @@ impl RiskEngine {
 
                 if sized {
                     self.check_portfolio_risk(&mut c, ctx, a, out.risk_amount);
+                    self.check_correlated_risk(&mut c, ctx, a, p, out.risk_amount);
                     if cfg.daily_risk_budget_pct > 0.0 {
                         if let Some(day) = ctx.day {
                             let budget = day.start_equity * cfg.daily_risk_budget_pct / 100.0;
@@ -593,6 +609,33 @@ impl RiskEngine {
             ok &= c.add("prix_ordre_attente", pending_ok, if pending_ok { "prix d'ordre cohérent avec le marché" } else { "prix d'ordre en attente incohérent avec le marché" });
         }
         ok
+    }
+
+    /// Positions moving with the new trade (correlated, same effective direction) are one bet.
+    fn check_correlated_risk(&self, c: &mut Checks, ctx: &RiskContext<'_>, a: &AccountSnapshot, p: &TradeProposal, new_risk: f64) {
+        let cfg = &self.config;
+        let limit = if cfg.max_correlated_risk_pct > 0.0 { cfg.max_correlated_risk_pct } else { 2.0 * cfg.risk_per_trade_pct };
+        let mut total = new_risk;
+        let mut members = Vec::new();
+        for x in ctx.positions {
+            let Some(rho) = self.correlation_of(&p.symbol, &x.symbol) else { continue };
+            if rho.abs() < cfg.correlation_threshold {
+                continue;
+            }
+            let effective = if rho > 0.0 { x.side } else { x.side.opposite() };
+            if effective != p.side || x.sl <= 0.0 {
+                continue;
+            }
+            let Some(s) = ctx.specs.get(&x.symbol) else { continue };
+            total += s.price_distance_value(((x.price_open - x.sl) * x.side.sign()).max(0.0), x.volume);
+            members.push(format!("{} {} (ρ {rho:+.2})", x.symbol, x.side));
+        }
+        let pct = if a.equity > 0.0 { total / a.equity * 100.0 } else { f64::INFINITY };
+        c.add("exposition_correlee", pct <= limit + 1e-9, if members.is_empty() {
+            format!("aucune position corrélée dans le même sens (seuil |ρ| {:.2})", cfg.correlation_threshold)
+        } else {
+            format!("risque du groupe corrélé {pct:.2} % (max {limit:.2} %): {}", members.join(", "))
+        });
     }
 
     /// Money lost if every open position, pending order and the new trade hit their stops.

@@ -5,6 +5,7 @@ mod config;
 mod costs;
 mod day;
 mod engine;
+pub mod exposure;
 mod goal;
 mod position;
 mod protection;

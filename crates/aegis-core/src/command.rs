@@ -108,6 +108,8 @@ pub enum Command {
         #[serde(default)]
         threads: usize,
     },
+    /// Enable or disable new entries on an instrument (open positions stay managed).
+    SetSymbolEnabled { symbol: String, enabled: bool },
     /// Data quality audit of a stored history.
     AuditData { symbol: String, timeframe: Timeframe, origin: DataOrigin },
     Shutdown,
@@ -180,6 +182,7 @@ impl Engine {
                 })
             }
             Command::SetDefaultProfile { profile } => self.set_default_profile(profile).await,
+            Command::SetSymbolEnabled { symbol, enabled } => self.cmd_symbol_enabled(&symbol, enabled).await,
             Command::AuditData { symbol, timeframe, origin } => self.cmd_audit_data(&symbol, timeframe, origin).await,
             Command::Kill { reason } => {
                 let reason = if reason.trim().is_empty() { "arrêt manuel".to_string() } else { reason };
