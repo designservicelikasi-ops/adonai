@@ -395,3 +395,31 @@ async fn permission_grants_and_events_are_stored_and_the_migration_is_reversible
     assert!(s.grants(10).await.unwrap().is_empty());
     s.close().await;
 }
+
+#[tokio::test]
+async fn migration_0008_is_reversible_and_keeps_the_journal() {
+    let dir = std::env::temp_dir().join(format!("aegis-m8-{}", aegis_types::new_id("t")));
+    let s = Store::open(&dir.join("aegis.db")).await.unwrap();
+    let e = JournalEntry { ticket: 9, decision_id: "d".into(), cid: "c".into(), symbol: "EURUSD".into(), side: Some(Side::Buy), regime_detail: "trend_up".into(), entry_kind: "reentry".into(), related_ticket: Some(8), stop_role: "structural".into(), ..Default::default() };
+    s.journal_open(&e).await.unwrap();
+    let back = s.journal_recent(10).await.unwrap();
+    assert_eq!((back[0].entry_kind.as_str(), back[0].related_ticket, back[0].stop_role.as_str()), ("reentry", Some(8), "structural"));
+    s.insert_regime_change(1, "EURUSD", "M5", "trend_up", "range", "x").await.unwrap();
+    assert_eq!(s.regime_history(5).await.unwrap().len(), 1);
+    let down = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations_down/0008_intelligence.down.sql")).unwrap();
+    s.run_sql_script(&down).await.unwrap();
+    assert!(s.regime_history(5).await.is_err());
+    let n: i64 = sqlx_count(&s).await;
+    assert_eq!(n, 1, "the journal row survives the rollback");
+    // As in real use: the rollback is done with the engine stopped; the next start re-applies 0008.
+    s.close().await;
+    let s = Store::open(&dir.join("aegis.db")).await.unwrap();
+    let back = s.journal_recent(10).await.unwrap();
+    assert_eq!((back[0].ticket, back[0].entry_kind.as_str()), (9, "normal"), "re-applied with the default");
+    s.close().await;
+}
+
+async fn sqlx_count(s: &Store) -> i64 {
+    // The 0.2 columns are still readable after the rollback.
+    s.journal_stats_count().await.unwrap()
+}

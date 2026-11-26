@@ -311,6 +311,9 @@ pub struct EngineView {
     /// AEGIS AUTONOMY COMMANDER: profile, grant, capabilities, permission trail (0.3).
     #[serde(default)]
     pub autonomy: crate::autonomy::AutonomyView,
+    /// Market regimes, multi-timeframe readings and scored opportunities (0.3).
+    #[serde(default)]
+    pub scanner: crate::scanner::ScannerView,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

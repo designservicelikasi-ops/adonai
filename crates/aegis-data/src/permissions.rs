@@ -135,6 +135,30 @@ impl Store {
             .collect())
     }
 
+    pub async fn insert_regime_change(&self, ts_ms: TimestampMs, symbol: &str, timeframe: &str, regime: &str, previous: &str, detail: &str) -> DataResult<()> {
+        sqlx::query("INSERT INTO regime_history (ts_ms, symbol, timeframe, regime, previous, detail) VALUES (?,?,?,?,?,?)")
+            .bind(ts_ms)
+            .bind(symbol)
+            .bind(timeframe)
+            .bind(regime)
+            .bind(previous)
+            .bind(detail)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Regime changes, most recent first: (ts, symbol, timeframe, regime, previous, detail).
+    pub async fn regime_history(&self, limit: i64) -> DataResult<Vec<(TimestampMs, String, String, String, String, String)>> {
+        let rows = sqlx::query("SELECT ts_ms, symbol, timeframe, regime, previous, detail FROM regime_history ORDER BY id DESC LIMIT ?").bind(limit).fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(|r| (r.get("ts_ms"), r.get("symbol"), r.get("timeframe"), r.get("regime"), r.get("previous"), r.get("detail"))).collect())
+    }
+
+    /// Number of journal rows (used to check rollbacks keep the data).
+    pub async fn journal_stats_count(&self) -> DataResult<i64> {
+        Ok(sqlx::query("SELECT COUNT(*) AS n FROM trade_journal").fetch_one(&self.pool).await?.get("n"))
+    }
+
     /// Execute a rollback script (`migrations_down/*.down.sql`). Used by tests and by the
     /// `aegisd db-rollback` tool; the engine must be stopped.
     pub async fn run_sql_script(&self, sql: &str) -> DataResult<()> {

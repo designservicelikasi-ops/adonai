@@ -4,9 +4,12 @@
 pub mod candles;
 pub mod indicators;
 pub mod regime;
+pub mod structure;
+pub mod mtf;
+pub mod scanner;
 
 pub use candles::{aggregate, CandleBuilder, CandleSeries};
-pub use regime::{detect_regime, session_at, RegimeReading, Session};
+pub use regime::{detect_regime, detect_regime_detail, session_at, RegimeDetail, RegimeKind, RegimeReading, Session, VolatilityDynamics, VolatilityLevel};
 
 use aegis_types::{Candle, Regime, Tick, Timeframe, TimestampMs};
 use indicators::{atr, ema, median, realized_volatility, rsi};
@@ -29,7 +32,8 @@ pub struct MarketConfig {
 impl Default for MarketConfig {
     fn default() -> Self {
         MarketConfig {
-            timeframes: vec![Timeframe::M1, Timeframe::M5, Timeframe::M15, Timeframe::H1],
+            // M30 since 0.3 (multi-timeframe structure); H4/D1 are rebuilt from H1 by the engine.
+            timeframes: vec![Timeframe::M1, Timeframe::M5, Timeframe::M15, Timeframe::M30, Timeframe::H1],
             series_capacity: 1_500,
             stale_after_ms: 5_000,
             abnormal_spread_factor: 4.0,

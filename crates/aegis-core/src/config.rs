@@ -165,6 +165,8 @@ pub struct EngineConfig {
     pub ops: OpsSection,
     pub safety: SafetySection,
     pub autonomy: AutonomySection,
+    /// Market regime, multi-timeframe and opportunity scanner settings.
+    pub intelligence: crate::scanner::IntelligenceSection,
     pub retention: RetentionSection,
 }
 
@@ -197,6 +199,7 @@ impl EngineConfig {
         self.probability.validate().map_err(|e| ConfigLoadError::Invalid(format!("probability: {e}")))?;
         self.news.validate().map_err(ConfigLoadError::Invalid)?;
         self.brain.validate().map_err(ConfigLoadError::Invalid)?;
+        self.intelligence.validate().map_err(ConfigLoadError::Invalid)?;
         if self.autonomy.default_profile.needs_grant() {
             return bad("autonomy.default_profile must be observer or research_autonomy (trading profiles need an explicit grant)".into());
         }

@@ -50,6 +50,7 @@ impl Engine {
             return;
         }
         self.refresh_entry_state(&bar.symbol, bar.timeframe);
+        self.scan_bar(&bar.symbol, bar.timeframe).await;
         self.shadow_bar(&bar.symbol, bar.timeframe);
         for idx in 0..self.strategies.len() {
             let (id, runs) = {
@@ -138,6 +139,8 @@ impl Engine {
         if let Some(p) = &stop_plan {
             checks.push(check("stop_initial", true, p.reason.clone()));
         }
+        let (intel_checks, regime_detail, transition_margin) = self.intelligence_checks(symbol, tf, intent.side, now);
+        checks.extend(intel_checks);
         let requester = if self.cfg.brain.applies_to(symbol) { aegis_autonomy::Requester::Brain } else { aegis_autonomy::Requester::Strategy };
         let permission = self.permit(aegis_autonomy::Capability::OpenPositions, requester);
         if self.mode.can_execute() {
@@ -228,6 +231,11 @@ impl Engine {
                 }
             };
             checks.push(check("actualites", ok, detail));
+            if transition_margin > 0.0 {
+                let needed = (min_p + transition_margin).min(0.99);
+                let ok = win_probability.is_some_and(|p| p >= needed);
+                checks.push(check("transition", ok, format!("transition de tendance: probabilité exigée {:.1} %", needed * 100.0)));
+            }
         }
 
         // ---- levels from the real quote
@@ -346,6 +354,8 @@ impl Engine {
                             let mut seed = crate::intel::seed_journal(&decision_id, &cid, &strategy_id, symbol, tf, intent.side, regime.as_str(), terminal_kind, entry, sl, tp, dv.assessment.micro.as_ref());
                             seed.probability_raw = probability_raw;
                             seed.brain = brain_view.is_some();
+                            seed.regime_detail = regime_detail.kind.as_str().to_string();
+                            seed.stop_role = stop_plan.as_ref().map(|p| serde_json::to_value(p.role).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default()).unwrap_or_default();
                             self.journal_seeds.insert(cid.clone(), seed);
                             let spread_cost = dv.assessment.micro.as_ref().map(|m| m.costs.spread).unwrap_or(0.0);
                             if let Some(acc) = self.accounting.as_mut() {

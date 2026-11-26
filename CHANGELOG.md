@@ -2,6 +2,21 @@
 
 ## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
 
+### Phase 4 — Régimes, multi-unités, structure, scanner
+
+- Régimes détaillés (tendance, transition, consolidation, latéral, désordonné ; niveau et
+  dynamique de volatilité ; conditions anormales ; annonce proche), historique des changements
+  (table `regime_history`), régime détaillé de chaque transaction.
+- Unité M30 ajoutée ; H4 et D1 reconstruits depuis H1 (UTC). Lecture multi-unités par rôle,
+  sans vote majoritaire, unités indisponibles signalées.
+- Détecteurs de structure définis et testés : swings, HH/HL/LH/LL, BOS, CHoCH, cassure,
+  fausse cassure, retest, repli, rejet, divergence, compression/expansion, liquidité,
+  déplacement, déséquilibre.
+- Scanner d'opportunités dans le moteur : score expliqué (≠ probabilité), probabilité
+  calibrée séparée, espérance nette, admissibilité motivée. Section `scanner` de l'état.
+- Contrôles `regime_detaille`, `multi_unites`, `transition`, `score_configuration` ;
+  section `[intelligence]`. Migration 0008 réversible (colonnes du journal + historique).
+
 ### Phase 3 — AEGIS AUTONOMY COMMANDER
 
 - Crate `aegis-autonomy` : 18 capacités, 4 profils (OBSERVER, RESEARCH, DEMO FULL, LIVE

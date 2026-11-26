@@ -1031,7 +1031,7 @@ async fn autonomy_grants_are_bound_audited_revocable_and_only_persistent_demo_gr
     // Immediate revocation.
     let msg = must(&h, Command::RevokeAutonomy { reason: "fin du test".into() }).await;
     assert!(msg.contains("révoquée"), "{msg}");
-    let v = wait_for(&h, "monitor after revocation", |v| v.mode == Mode::Monitor && v.autonomy.active_grant.is_none()).await;
+    wait_for(&h, "monitor after revocation", |v| v.mode == Mode::Monitor && v.autonomy.active_grant.is_none()).await;
     let v = wait_for(&h, "permission trail visible", |v| v.autonomy.events.iter().any(|e| e.event == "revoke")).await;
     for ev in ["grant", "resume", "revoke"] {
         assert!(v.autonomy.events.iter().any(|e| e.event == ev), "permission trail lacks `{ev}`: {:?}", v.autonomy.events.iter().map(|e| &e.event).collect::<Vec<_>>());
@@ -1048,4 +1048,35 @@ async fn autonomy_grants_are_bound_audited_revocable_and_only_persistent_demo_gr
     assert!(grants.iter().any(|x| x.grant_id == g.grant_id && x.revoked_by.as_deref() == Some("user") && x.revoke_reason.as_deref() == Some("fin du test")));
     let audit: Vec<String> = store.audit_tail(2_000).await.unwrap().into_iter().map(|a| a.event).collect();
     assert!(audit.iter().any(|e| e == "autonomy_grant") && audit.iter().any(|e| e == "autonomy_revoke"));
+}
+
+// ------------------------------------------------------------------ Market intelligence (0.3)
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_scanner_reads_every_timeframe_scores_separately_from_probability_and_explains_decisions() {
+    let r = rig("scanner", 60, true).await;
+    let v = wait_for(&r.h, "breakout decision", |v| breakout_decision(v).is_some() && v.scanner.scans > 0).await;
+    let d = breakout_decision(&v).unwrap();
+    for name in ["regime_detaille", "multi_unites", "stop_initial", "autonomie"] {
+        assert!(d.engine_checks.iter().any(|c| c.name == name), "decision lacks `{name}`: {:?}", d.engine_checks.iter().map(|c| &c.name).collect::<Vec<_>>());
+    }
+    let (_, reads) = v.scanner.mtf.iter().find(|(s, _)| s == SIM_SYMBOL).expect("multi-timeframe reading of the instrument");
+    let tfs: Vec<Timeframe> = reads.iter().map(|r| r.timeframe).collect();
+    for tf in [Timeframe::D1, Timeframe::H4, Timeframe::H1, Timeframe::M30, Timeframe::M15, Timeframe::M5, Timeframe::M1] {
+        assert!(tfs.contains(&tf), "{tf} missing from {tfs:?}");
+    }
+    // The fixture has 300 M5 bars: D1 cannot be available — and is said so, not assumed.
+    assert!(!reads.iter().find(|r| r.timeframe == Timeframe::D1).unwrap().available);
+    assert!(reads.iter().find(|r| r.timeframe == Timeframe::M5).unwrap().available);
+    assert!(v.scanner.regimes.iter().any(|(s, tf, _)| s == SIM_SYMBOL && tf == "M5"));
+    let v = wait_for(&r.h, "an opportunity scored", |v| !v.scanner.opportunities.is_empty()).await;
+    for o in &v.scanner.opportunities {
+        assert!(o.opportunity.score <= 100);
+        assert!(!o.opportunity.components.is_empty());
+        // No probability model was trained in this test: the probability is absent and explained.
+        assert!(o.probability.is_none() && !o.admissible);
+        assert!(o.reasons.iter().any(|x| x.contains("probabilité")), "{:?}", o.reasons);
+    }
+    r.sim.stop().await;
+    r.h.shutdown().await;
 }

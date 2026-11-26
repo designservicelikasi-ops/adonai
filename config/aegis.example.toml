@@ -89,7 +89,7 @@ policy = "stop_entries"          # "stop_entries" | "protect_gains" | "track_onl
 protect_fraction = 0.8           # protect_gains : part du meilleur résultat à conserver
 
 [market]
-timeframes = ["M1", "M5", "M15", "H1"]
+timeframes = ["M1", "M5", "M15", "M30", "H1"]   # H4 et D1 sont reconstruits depuis H1 (UTC)
 series_capacity = 1500
 stale_after_ms = 5000            # prix considéré obsolète
 abnormal_spread_factor = 4.0     # spread anormal = x fois la médiane récente
@@ -169,6 +169,13 @@ disconnect_alert_s = 60          # alerte si MT5 est déconnecté en mode automa
 
 [safety]
 live_trading_enabled = false     # LIVE AUTO est impossible tant que ceci vaut false
+
+[intelligence]                   # Régimes, multi-unités, scanner d'opportunités (voir docs/MARKET_INTELLIGENCE.md)
+min_opportunity_score = 0        # entrée seulement si le scanner a une configuration de ce score ; 0 = désactivé
+require_mtf_alignment = false    # refuser une entrée contredite par le contexte, la structure ou la confirmation
+block_chaotic = true             # aucune entrée dans un marché désordonné
+transition_probability_margin = 0.0  # en transition de tendance, probabilité exigée + marge (recommandé : 0.05)
+keep = 200
 
 [autonomy]                       # AEGIS AUTONOMY COMMANDER (voir docs/AUTONOMY.md)
 default_profile = "research_autonomy"  # sans autorisation : "observer" (aucune recherche automatique) ou "research_autonomy"

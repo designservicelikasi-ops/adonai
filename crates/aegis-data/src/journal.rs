@@ -48,6 +48,18 @@ pub struct JournalEntry {
     pub probability_raw: Option<f64>,
     /// The micro-profit brain chose this trade's target and volume.
     pub brain: bool,
+    /// Detailed regime at the decision (0.3, `RegimeKind::as_str`).
+    #[serde(default)]
+    pub regime_detail: String,
+    /// `normal` | `reentry` (after a loss on the same instrument) | `hedge` (opposite to an open position).
+    #[serde(default)]
+    pub entry_kind: String,
+    /// Position this entry follows (reentry) or covers (hedge).
+    #[serde(default)]
+    pub related_ticket: Option<i64>,
+    /// Role of the initial stop (`initial`, `structural`, `volatility`).
+    #[serde(default)]
+    pub stop_role: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,6 +125,10 @@ fn journal_from_row(r: &sqlx::sqlite::SqliteRow) -> DataResult<JournalEntry> {
         mae_price: r.get("mae_price"),
         probability_raw: r.get("probability_raw"),
         brain: r.get("brain"),
+        regime_detail: r.get("regime_detail"),
+        entry_kind: r.get("entry_kind"),
+        related_ticket: r.get("related_ticket"),
+        stop_role: r.get("stop_role"),
     })
 }
 
@@ -122,8 +138,9 @@ impl Store {
         sqlx::query(
             "INSERT OR IGNORE INTO trade_journal (ticket, decision_id, cid, strategy_id, symbol, timeframe, side, regime, terminal,
                 opened_ms, volume, entry_requested, entry_filled, sl_initial, tp_initial, probability, probability_source,
-                expected_net, est_spread_cost, est_commission, slippage_cost, probability_raw, brain)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                expected_net, est_spread_cost, est_commission, slippage_cost, probability_raw, brain,
+                regime_detail, entry_kind, related_ticket, stop_role)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(e.ticket)
         .bind(&e.decision_id)
@@ -148,6 +165,10 @@ impl Store {
         .bind(e.slippage_cost)
         .bind(e.probability_raw)
         .bind(e.brain)
+        .bind(&e.regime_detail)
+        .bind(if e.entry_kind.is_empty() { "normal" } else { e.entry_kind.as_str() })
+        .bind(e.related_ticket)
+        .bind(&e.stop_role)
         .execute(&self.pool)
         .await?;
         Ok(())
