@@ -196,7 +196,7 @@ impl Engine {
         if let Some(l) = self.commander.lapse_if_invalid(&ctx) {
             self.persist_grant(&l.grant).await;
             self.permission_event("lapse", "commander", None, format!("{} ({}) n'est plus valable: {}", l.grant.grant_id, l.grant.profile.label(), l.reason)).await;
-            self.alert("warn", "autonomy", format!("autorisation {} terminée: {} — mode MONITOR", l.grant.profile.label(), l.reason));
+            self.alert("warning", "autonomy", format!("autorisation {} terminée: {} — mode MONITOR", l.grant.profile.label(), l.reason));
             self.set_mode(Mode::Monitor, &format!("autorisation terminée: {}", l.reason)).await;
         }
         let profile = self.commander.profile(&ctx);

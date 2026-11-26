@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Json } from "../api";
-import { Badge, Panel, cx } from "../components/ui";
-import { EmptyBox, Grid, Note, PageHeader, StatCard, Tabs } from "../components/kit";
+import { Badge, Button, Panel, cx } from "../components/ui";
+import { EmptyBox, Grid, Note, PageHeader, StatCard, Tabs, useCommand } from "../components/kit";
 import { ago, fmtDateTime, fmtTime } from "../format";
 
-export default function Notifications({ s }: { s: Json }) {
+export default function Notifications({ s, refresh }: { s: Json; refresh: () => void }) {
+  const { run, busy } = useCommand(refresh);
   const [tab, setTab] = useState<"alerts" | "warnings">("alerts");
   const [source, setSource] = useState("");
   if (!s) return <PageHeader title="Notifications" subtitle="Connexion au moteur…" />;
@@ -19,6 +20,7 @@ export default function Notifications({ s }: { s: Json }) {
       <PageHeader
         title="Notifications"
         subtitle="Alertes émises par le moteur (déconnexion, stop manquant, autorisation terminée, sauvegarde, base de données…) et avertissements du journal. Rien ici n'est généré par l'interface."
+        right={<Button disabled={busy} onClick={() => run("test_notification")} title="Émet une alerte d'avertissement et l'envoie aux canaux configurés">Envoyer une notification de test</Button>}
       />
       <Grid cols={3}>
         <StatCard label="Alertes critiques" value={critical} tone={critical ? "text-down-400" : "text-up-400"} sub={critical ? "à examiner" : "aucune"} accent={critical > 0} />
@@ -54,7 +56,7 @@ export default function Notifications({ s }: { s: Json }) {
         )}
       </Panel>
       <div className="mt-4">
-        <Note>Envoi externe : le moteur peut poster chaque alerte en JSON vers une adresse https (<span className="font-mono">[ops] alert_webhook_url</span> dans la configuration du serveur), par exemple un relais vers une messagerie. Le moteur garde les 100 dernières alertes en mémoire.</Note>
+        <Note>Envoi externe (configuration du serveur, section <span className="font-mono">[ops]</span>) : webhook JSON en https (<span className="font-mono">alert_webhook_url</span>) et/ou Telegram (<span className="font-mono">telegram_chat_id</span> ; le jeton du bot se met dans la variable d'environnement <span className="font-mono">AEGIS_TELEGRAM_TOKEN</span>, jamais dans un fichier). Le bouton ci-dessus indique ce qui a été envoyé. Le moteur garde les 100 dernières alertes en mémoire.</Note>
       </div>
     </div>
   );

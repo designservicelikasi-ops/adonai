@@ -83,7 +83,7 @@ identique à celle de `aegisd pairing`.
 | CPU / RAM | page *Système* du desktop, `GET /api/v1/system` |
 | Sauvegardes | automatiques toutes les `ops.backup_interval_hours` (24 h par défaut), `ops.backup_keep` conservées ; manuelles depuis le desktop ; restauration : `aegisd restore --from <fichier>` (voir `BACKUP_RECOVERY.md`) |
 | Récupération après crash | base SQLite WAL `synchronous=FULL` ; au redémarrage : ordres au sort inconnu en réconciliation, arrêt d'urgence restauré, automatisation jamais restaurée |
-| Alertes | page *Système*, journaux, et `ops.alert_webhook_url` (HTTPS) : arrêt d'urgence, terminal déconnecté en mode automatique, base indisponible, sauvegarde impossible |
+| Alertes | page *Système*, journaux, `ops.alert_webhook_url` (HTTPS) et Telegram (`ops.telegram_chat_id` + variable `AEGIS_TELEGRAM_TOKEN`) ; commande `test_notification` pour vérifier : arrêt d'urgence, terminal déconnecté en mode automatique, base indisponible, sauvegarde impossible |
 | État des positions | tableau de bord, page *Positions & ordres*, journal des transactions |
 
 ## Séparer MT5 et le moteur (évolution)

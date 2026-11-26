@@ -28,7 +28,7 @@ Les paramètres des stratégies se modifient de la même façon (page *Stratégi
 | `[probability]` | P(TP avant SL) | grilles TP/SL en ATR, horizon, walk-forward, critères de calibration, scénario affiché |
 | `[news]` | calendrier économique | `enabled`, `sources`, fenêtres autour des annonces, marge de prudence |
 | `[shadow]` | laboratoire Shadow | `enabled`, `variants`, `forward_min_trades` |
-| `[ops]` | sans surveillance | `heartbeat_file`, `backup_interval_hours`, `backup_keep`, `alert_webhook_url`, `disconnect_alert_s` |
+| `[ops]` | sans surveillance | `heartbeat_file`, `backup_interval_hours`, `backup_keep`, `alert_webhook_url`, `telegram_chat_id`, `telegram_token_env`, `disconnect_alert_s` |
 | `[safety]` | réel | `live_trading_enabled` (faux par défaut) |
 | `[retention]` | purge | `candle_days`, `snapshot_days` |
 

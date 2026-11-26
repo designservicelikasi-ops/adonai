@@ -56,6 +56,8 @@ pub enum Command {
     ModifyPosition { ticket: i64, sl: f64, tp: f64 },
     CancelOrder { ticket: i64 },
     Backup,
+    /// Emit a warning alert so the user can check the webhook / Telegram setup.
+    TestNotification,
     LoadModel { path: PathBuf },
     /// Train a P(TP before SL) model on stored candles (runs in the background).
     TrainProbability { symbol: String, timeframe: Timeframe, origin: DataOrigin },
@@ -253,6 +255,24 @@ impl Engine {
                 None => Err(format!("ordre {ticket} introuvable")),
             },
             Command::Backup => self.cmd_backup().await,
+            Command::TestNotification => {
+                self.alert("warning", "ops", "notification de test demandée par l'utilisateur".into());
+                let mut out = vec!["alerte de test enregistrée".to_string()];
+                if !self.cfg.ops.alert_webhook_url.is_empty() {
+                    out.push("envoyée au webhook".into());
+                }
+                if !self.cfg.ops.telegram_chat_id.is_empty() {
+                    out.push(if std::env::var(&self.cfg.ops.telegram_token_env).is_ok_and(|t| !t.trim().is_empty()) {
+                        "envoyée à Telegram (vérifiez la réception)".into()
+                    } else {
+                        format!("Telegram configuré mais variable {} absente", self.cfg.ops.telegram_token_env)
+                    });
+                }
+                if out.len() == 1 {
+                    out.push("aucun envoi externe configuré".into());
+                }
+                Ok(out.join(" ; "))
+            }
             Command::LoadModel { path } => {
                 let r = self.load_model(&path).await;
                 if let Err(e) = &r {

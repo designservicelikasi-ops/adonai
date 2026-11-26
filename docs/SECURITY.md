@@ -7,6 +7,7 @@
 | Connecteur MT5 → moteur (TCP, port 7878) | HMAC-SHA256 sur chaque trame, clé de session dérivée de deux nonces, numéro de séquence strict, fenêtre d'horodatage, lecture bornée. **Pas de chiffrement.** | Laisser sur la boucle locale (MT5 et moteur sur le même VPS Windows) ou dans un tunnel (WireGuard, SSH). Jamais exposé sur Internet. |
 | AEGIS Desktop → moteur (HTTPS, port 7879) | TLS 1.2/1.3 (rustls), certificat auto-signé **épinglé** par son empreinte SHA-256, jeton porteur de 48 caractères, limitation des échecs (10 par minute et par adresse → HTTP 429). | Sur un VPS : `api.listen = "0.0.0.0:7879"` et règle de pare-feu limitant l'accès à votre adresse. |
 | Webhook d'alertes (sortant) | HTTPS uniquement (ou `http://127.0.0.1` vers un relais local). | Facultatif. |
+| Telegram (sortant) | HTTPS vers `api.telegram.org`. Le jeton du bot est lu dans une variable d'environnement (`ops.telegram_token_env`) au moment de l'envoi : jamais dans la configuration, la base, les journaux ni les messages d'erreur. Le message contient le niveau, la source, le texte de l'alerte et le numéro du compte. | Facultatif (`ops.telegram_chat_id` vide = désactivé). |
 | Calendrier économique (sortant) | HTTPS vers la source configurée. Aucune donnée personnelle envoyée. | Désactivable (`news.enabled = false`). |
 
 ## Secrets

@@ -129,7 +129,7 @@ impl Engine {
                     }
                 };
                 self.audit("learning", "probability_model_rollback", json!({ "model_id": m.model_id, "verdict": v })).await;
-                self.alert("warn", "learning", msg.clone());
+                self.alert("warning", "learning", msg.clone());
                 self.learning.rollbacks.push(msg);
             }
             verdicts.push(v);

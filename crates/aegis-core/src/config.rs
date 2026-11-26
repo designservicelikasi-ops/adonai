@@ -86,15 +86,20 @@ pub struct OpsSection {
     pub backup_interval_hours: u32,
     /// Automatic backups kept (older ones are deleted).
     pub backup_keep: usize,
-    /// Optional webhook receiving critical alerts as JSON (POST). Empty = alerts only in the view and logs.
+    /// Optional webhook receiving every alert (critical and warning) as JSON (POST). Empty = alerts only in the view and logs.
     pub alert_webhook_url: String,
+    /// Optional Telegram chat (numeric id, e.g. "-1001234567890", or "@channel") receiving every
+    /// alert. Empty = off. The bot token is NEVER in the configuration: it is read from the
+    /// environment variable named by `telegram_token_env` at send time and never logged.
+    pub telegram_chat_id: String,
+    pub telegram_token_env: String,
     /// Alert when the terminal stays disconnected this long in an automatic mode, in seconds.
     pub disconnect_alert_s: i64,
 }
 
 impl Default for OpsSection {
     fn default() -> Self {
-        OpsSection { heartbeat_file: true, backup_interval_hours: 24, backup_keep: 14, alert_webhook_url: String::new(), disconnect_alert_s: 60 }
+        OpsSection { heartbeat_file: true, backup_interval_hours: 24, backup_keep: 14, alert_webhook_url: String::new(), telegram_chat_id: String::new(), telegram_token_env: "AEGIS_TELEGRAM_TOKEN".into(), disconnect_alert_s: 60 }
     }
 }
 
@@ -234,6 +239,12 @@ impl EngineConfig {
         }
         if !self.ops.alert_webhook_url.is_empty() && !self.ops.alert_webhook_url.starts_with("https://") && !self.ops.alert_webhook_url.starts_with("http://127.0.0.1") {
             return bad("ops.alert_webhook_url must be https:// (or http://127.0.0.1 for a local relay)".into());
+        }
+        if !self.ops.telegram_chat_id.is_empty() && !crate::ops::valid_telegram_chat(&self.ops.telegram_chat_id) {
+            return bad("ops.telegram_chat_id must be a numeric chat id or @channel_name".into());
+        }
+        if self.ops.telegram_token_env.is_empty() || !self.ops.telegram_token_env.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return bad("ops.telegram_token_env must be an environment variable name".into());
         }
         if self.ops.backup_interval_hours > 24 * 30 || !(1..=1_000).contains(&self.ops.backup_keep) || !(5..=86_400).contains(&self.ops.disconnect_alert_s) {
             return bad("ops settings out of range".into());

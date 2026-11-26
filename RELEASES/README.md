@@ -1,20 +1,21 @@
-# AEGIS 0.2.0 — livrables
+# AEGIS 0.3.0 — livrables
 
 Ce dossier ne contient **que des fichiers réellement produits et vérifiés** sur la machine de
-développement (macOS, Apple Silicon), le 2026-11-18.
+développement (macOS, Apple Silicon), le 2026-11-26.
 
 | Dossier | Contenu | État |
 |---|---|---|
-| `macos/` | `AEGIS-0.2.0-macos-arm64.zip` — AEGIS Desktop (`AEGIS.app`, moteur `aegisd` embarqué) | compilé et lancé ; non signé (macOS demandera une confirmation à l'ouverture) |
-| `server/macos/` | `aegisd` (moteur, macOS arm64) + configuration d'exemple | compilé, lancé avec le simulateur, API TLS vérifiée |
-| `connector/` | sources MQL5 (`.mq5`, `.mqh`) | **NON COMPILÉ** : pas de `.ex5` (MetaEditor indisponible) |
+| `macos/` | `AEGIS-0.3.0-macos-arm64.zip` — AEGIS Desktop 0.3.0 (`AEGIS.app`, moteur `aegisd` embarqué) | compilé ; moteur embarqué démarré en MONITOR ; non signé (macOS demandera une confirmation à l'ouverture) |
+| `server/macos/` | `aegisd` 0.3.0 (moteur, macOS arm64) + configuration d'exemple | compilé, lancé avec le simulateur |
+| `connector/` | sources MQL5 du connecteur 1.20 (`.mq5`, `.mqh`) | pas de `.ex5` ici (MetaEditor indisponible sous macOS) : la CI le compile, voir `documentation/TEST_REPORT.md` § 6 |
 | `documentation/` | toute la documentation | — |
 | `release-notes/` | `CHANGELOG.md` | — |
+| `archive-0.2.0/` | livrables de la version 0.2.0 (2026-11-18) | conservés tels quels |
 
-**Absents, parce qu'ils n'ont pas encore été produits :** installateurs Windows (`.exe`,
-`.msi`), paquets Linux (AppImage, `.deb`, `.rpm`), moteurs Windows et Linux, connecteur
-compilé `.ex5`. Ils sont fabriqués par le pipeline `.github/workflows/build.yml` (runners
-Windows et Linux natifs) dès que le dépôt est poussé sur GitHub ; le job `release` assemble
-alors ce même dossier pour toutes les plateformes. Voir `documentation/BUILD_GUIDE.md`.
+**Windows et Linux** (installateurs `.exe`, `.msi`, AppImage, `.deb`, `.rpm`, moteurs) et le
+connecteur compilé `.ex5` sont fabriqués par la CI GitHub (`.github/workflows/build.yml`) sur
+des runners natifs ; ils sont disponibles comme *artifacts* de l'exécution correspondante sur
+GitHub, et le job `release` assemble ce même dossier pour toutes les plateformes lorsqu'une
+étiquette `v*` est poussée.
 
 Empreintes : `SHA256SUMS.txt`.

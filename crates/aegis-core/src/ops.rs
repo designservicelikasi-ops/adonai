@@ -1,5 +1,5 @@
 //! Unattended operation: heartbeat file, scheduled backups with rotation,
-//! critical alerts (view + log + optional webhook).
+//! alerts (view + log + optional webhook + optional Telegram).
 
 use crate::engine::Engine;
 use aegis_types::*;
@@ -17,6 +17,40 @@ pub struct Alert {
 
 const AUTO_PREFIX: &str = "aegis-auto-";
 
+/// A Telegram chat id: a (possibly negative) integer, or a public channel "@name".
+pub fn valid_telegram_chat(c: &str) -> bool {
+    let digits = c.strip_prefix('-').unwrap_or(c);
+    (!digits.is_empty() && digits.len() <= 20 && digits.chars().all(|x| x.is_ascii_digit()))
+        || c.strip_prefix('@').is_some_and(|n| (5..=32).contains(&n.len()) && n.chars().all(|x| x.is_ascii_alphanumeric() || x == '_'))
+}
+
+/// Plain-text message (no markup: alert texts are not escaped for Markdown/HTML).
+pub fn telegram_text(a: &Alert, login: Option<i64>) -> String {
+    let level = if a.level == "critical" { "CRITIQUE" } else { "Avertissement" };
+    let account = login.map(|l| format!("\ncompte #{l}")).unwrap_or_default();
+    let mut text = format!("AEGIS — {level} — {}\n{}{account}", a.source, a.text);
+    // Telegram limit: 4096 characters.
+    if text.chars().count() > 4000 {
+        text = text.chars().take(4000).collect::<String>() + "…";
+    }
+    text
+}
+
+/// Send one message. The error never contains the token (the URL is not echoed).
+fn send_telegram(token: &str, chat: &str, text: &str) -> Result<(), String> {
+    let url = format!("https://api.telegram.org/bot{token}/sendMessage");
+    let r = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .post(&url)
+        .send_json(json!({ "chat_id": chat, "text": text, "disable_web_page_preview": true }));
+    match r {
+        Ok(_) => Ok(()),
+        Err(ureq::Error::Status(code, _)) => Err(format!("telegram: envoi refusé (HTTP {code}) — vérifiez le jeton et le chat")),
+        Err(ureq::Error::Transport(t)) => Err(format!("telegram: envoi impossible ({:?})", t.kind())),
+    }
+}
+
 impl Engine {
     /// Record an alert; sent to the webhook when one is configured. Never blocks the engine.
     pub(crate) fn alert(&mut self, level: &str, source: &str, text: String) {
@@ -33,6 +67,20 @@ impl Engine {
                     tracing::warn!("alert webhook failed: {e}");
                 }
             });
+        }
+        if !self.cfg.ops.telegram_chat_id.is_empty() {
+            match std::env::var(&self.cfg.ops.telegram_token_env) {
+                Ok(token) if !token.trim().is_empty() => {
+                    let chat = self.cfg.ops.telegram_chat_id.clone();
+                    let text = telegram_text(&a, self.account.as_ref().map(|x| x.login));
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(e) = send_telegram(token.trim(), &chat, &text) {
+                            tracing::warn!("{e}");
+                        }
+                    });
+                }
+                _ => tracing::warn!("telegram: variable {} absente, alerte non envoyée", self.cfg.ops.telegram_token_env),
+            }
         }
         self.cache.dirty = true;
     }
@@ -95,5 +143,32 @@ impl Engine {
             let _ = std::fs::remove_file(p);
         }
         Ok(format!("sauvegarde automatique: {} ({removed} ancienne(s) supprimée(s))", dest.display()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn telegram_chat_ids_are_checked() {
+        for ok in ["123456789", "-1001234567890", "@aegis_alerts"] {
+            assert!(valid_telegram_chat(ok), "{ok}");
+        }
+        for bad in ["", "-", "12a", "@ab", "@bad-name", "https://t.me/x", "123456789012345678901"] {
+            assert!(!valid_telegram_chat(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn telegram_text_is_plain_bounded_and_names_the_account() {
+        let a = Alert { ts_ms: 0, level: "critical".into(), source: "risk".into(), text: "position sans stop".into() };
+        let t = telegram_text(&a, Some(900001));
+        assert!(t.starts_with("AEGIS — CRITIQUE — risk\nposition sans stop"));
+        assert!(t.ends_with("compte #900001"));
+        let w = Alert { level: "warning".into(), text: "x".repeat(10_000), ..a };
+        let t = telegram_text(&w, None);
+        assert!(t.contains("Avertissement") && !t.contains("compte"));
+        assert!(t.chars().count() <= 4001, "Telegram refuses messages over 4096 characters");
     }
 }

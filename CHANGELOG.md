@@ -1,6 +1,18 @@
 # Historique des versions
 
-## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
+## 0.3.0 — 2026-11-26 (directive « Master Upgrade »)
+
+### Phase 9 — Validation et livraison
+
+- **Notification Telegram** facultative (`[ops] telegram_chat_id`, jeton du bot dans la
+  variable d'environnement `AEGIS_TELEGRAM_TOKEN`, jamais dans un fichier ni dans les
+  journaux — D42) ; commande `test_notification` et bouton « Envoyer une notification de
+  test » (page Notifications).
+- Niveaux d'alerte harmonisés (`critical` / `warning`).
+- Documentation finale 0.3 : README, ARCHITECTURE, KNOWN_LIMITATIONS, TEST_REPORT,
+  PROJECT_STATUS (rapport final), SECURITY, CONFIGURATION, VPS_DEPLOYMENT ; chemin des scripts
+  de retour arrière corrigé (`migrations_down/`).
+- `AEGIS.app` et moteur macOS 0.3.0 dans `RELEASES/`.
 
 ### Phase 8 — AEGIS Desktop blanc et or
 

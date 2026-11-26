@@ -242,3 +242,10 @@ d'urgence : ces actions réduisent le risque. Elles restent tracées.
 ## D41 — Profil par défaut RESEARCH AUTONOMY
 Le cerveau réentraînait déjà automatiquement ses modèles en 0.2 ; OBSERVER l'aurait arrêté
 sans que l'utilisateur l'ait demandé. Le défaut conserve ce comportement ; OBSERVER se choisit.
+
+## D42 — Notification Telegram : jeton hors configuration
+Le jeton d'un bot Telegram donne le contrôle du bot : il n'est jamais écrit dans
+`aegis.toml`, la base ou les journaux. Le moteur le lit dans une variable d'environnement au
+moment de l'envoi et n'affiche jamais l'URL (qui le contient) dans une erreur. Telegram reçoit
+les mêmes alertes que le webhook (critiques et avertissements), en texte brut. L'envoi se fait
+hors de la boucle du moteur : une panne de Telegram ne ralentit rien.

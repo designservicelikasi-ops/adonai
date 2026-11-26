@@ -733,6 +733,9 @@ async fn unattended_operation_heartbeat_backups_and_alerts() {
     let dir = temp_dir("ops");
     let mut cfg = config(&dir);
     cfg.ops.backup_keep = 1;
+    // Telegram configured, but its token variable is absent: nothing is sent, the user is told.
+    cfg.ops.telegram_chat_id = "123456789".into();
+    cfg.ops.telegram_token_env = "AEGIS_TEST_TELEGRAM_TOKEN_NOT_SET".into();
     // Pretend the last automatic backup is old: one is due at the first timer tick.
     let store = Store::open(&dir.join("aegis.db")).await.unwrap();
     store.kv_set("last_auto_backup_ms", &1i64).await.unwrap();
@@ -751,6 +754,10 @@ async fn unattended_operation_heartbeat_backups_and_alerts() {
     let v = wait_for(&h, "alert recorded", |v| !v.alerts.is_empty()).await;
     assert_eq!(v.alerts[0].level, "critical");
     assert!(v.alerts[0].text.contains("test d'alerte"));
+    let msg = must(&h, Command::TestNotification).await;
+    assert!(msg.contains("AEGIS_TEST_TELEGRAM_TOKEN_NOT_SET"), "{msg}");
+    let v = wait_for(&h, "test alert", |v| v.alerts.len() >= 2).await;
+    assert_eq!(v.alerts[0].level, "warning");
     h.shutdown().await;
 }
 

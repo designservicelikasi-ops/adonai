@@ -58,7 +58,7 @@ const PAGES: PageDef[] = [
   { id: "settings", label: "Risque & configuration", icon: "⚙", group: "Contrôle", keywords: "modes réglages", render: (p) => <Settings {...p} /> },
   { id: "mt5", label: "Terminal MT5", icon: "⇄", group: "Système", keywords: "connecteur latence exécution bridge", render: (p) => <Mt5 s={p.s} /> },
   { id: "security", label: "Sécurité", icon: "⚿", group: "Système", keywords: "clés certificat refus", render: (p) => <Security {...p} /> },
-  { id: "notifications", label: "Notifications", icon: "◔", group: "Système", keywords: "alertes avertissements", render: (p) => <Notifications s={p.s} /> },
+  { id: "notifications", label: "Notifications", icon: "◔", group: "Système", keywords: "alertes avertissements", render: (p) => <Notifications {...p} /> },
   { id: "audit", label: "Audit", icon: "≣", group: "Système", keywords: "journal traçabilité ordres commandes", render: (p) => <Audit {...p} /> },
   { id: "system", label: "Système", icon: "⌁", group: "Système", keywords: "santé journaux sauvegarde", render: (p) => <System {...p} /> },
   { id: "connection", label: "Connexion", icon: "⇆", group: "Système", keywords: "moteur appairage jeton" },

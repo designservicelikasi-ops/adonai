@@ -1,10 +1,16 @@
 # AEGIS — État du projet et rapport de livraison
 
-## POINT DE REPRISE 0.3 (2026-11-26) — directive « Master Upgrade »
+## RAPPORT FINAL 0.3.0 (2026-11-26) — directive « Master Upgrade »
 
 Audit et plan : `docs/AUDIT_V3.md`. Détail des ajouts : `CHANGELOG.md` (section 0.3.0).
-**304 tests réussis, 0 échoué** (`./scripts/test.sh`) au dernier commit Rust ; TypeScript du
-desktop : `npx tsc --noEmit` sans erreur.
+Tests : `TEST_REPORT.md`. Limites : `KNOWN_LIMITATIONS.md` (31 points).
+
+### En une phrase
+
+Les neuf phases de la directive sont réalisées et testées **sur macOS avec le simulateur**
+(306 tests, application 0.3.0 compilée) ; AEGIS **n'est pas encore prêt pour un compte réel** :
+le connecteur 1.20 n'a jamais tourné dans un vrai terminal MT5, et aucune stratégie ni aucun
+modèle n'a été évalué sur des données de marché réelles.
 
 | Phase | État | Commit |
 |---|---|---|
@@ -15,45 +21,67 @@ desktop : `npx tsc --noEmit` sans erreur.
 | 5 Micro-Profit 2.0, Recovery & Hedge | fait | `ef768ac` |
 | 6 Fast Learning | fait | `81c599a` |
 | 7 Multi-actifs, exposition corrélée | fait | `9c80b6d` |
-| 8 Desktop blanc et or | fait (contrôle visuel en mode aperçu) | ce commit |
-| 9 Validation, livraison, rapport final | à faire | — |
+| 8 Desktop blanc et or (25 pages) | fait (contrôle visuel en mode aperçu) | `e09c50b` |
+| 9 Validation, Telegram, documentation, livraison | fait ; CI 0.3 : `TEST_REPORT.md` § 6 | ce commit |
 
-### Phase 8 — ce qui a été fait
-- Thème PURE WHITE & GOLD par les jetons (`desktop/tailwind.config.js`, `src/styles.css`,
-  graphiques, boutons, badges, modales) ; kit commun `src/components/kit.tsx`.
-- **25 pages** (+ Connexion) reliées aux sections réelles du moteur, en 5 groupes dans
-  `App.tsx` (registre `PAGES`) ; palette Ctrl/Cmd+K ; profil d'autonomie dans l'en-tête ;
-  Command Center par défaut. Nouvelles pages de cette reprise : `Autonomy`, `RiskGuardian`,
-  `Recovery`, `Backtesting`, `Learning`, `Portfolio`, `Mt5`, `Security`, `Notifications`,
-  `Audit`.
-- Vérifié le 2026-11-26 : `npm run build` (dont `tsc`) sans erreur ; `cargo check --locked`
-  du côté Tauri ; 304 tests Rust réussis. Contrôle visuel : moteur `aegisd --simulator`
-  isolé (ports 17878/17879, données temporaires) avec backtest, recherche de paramètres,
-  audit de données, modèle de probabilité et autorisation DEMO sur le simulateur ; 26
-  sections capturées en `preview-fixtures.json` ; aperçu (`VITE_AEGIS_PREVIEW=1`) compilé
-  **hors du dépôt** et chaque page capturée avec Chrome sans fenêtre (1440 × 900) : aucune
-  erreur de console. Défauts trouvés et corrigés : Backtesting et Fast Learning vides
-  (le résumé n'a pas `meta` dans `strategies`), valeurs tronquées (Risk Guardian), « −0,00 »
-  (`fmtNum`), icône émoji.
-- **NON VÉRIFIÉ** : aucune position n'a été ouverte pendant l'essai (signaux refusés faute de
-  probabilité calibrée sur M1/M5, comportement attendu) : les tableaux de positions, ordres,
-  couvertures et latences n'ont été vus que vides. La palette Ctrl/Cmd+K n'a pas été essayée
-  au clavier (pas d'automatisation du clavier ici). L'application `.app` n'a pas été
-  recompilée (`npm run tauri build`).
+### Ce qui est livré
 
-### Phase 9 — à faire
-Documentation finale (README, ARCHITECTURE, KNOWN_LIMITATIONS, TEST_REPORT), rapport final
-(partie 25), notification Telegram (optionnelle, sans clé dans le code ; un webhook générique
-existe déjà : `[ops] alert_webhook_url`), pousser sur GitHub
-**avec l'accord de l'utilisateur** pour lancer la CI Windows/Linux/MQL5 (jamais exécutée
-depuis ces changements ; le connecteur 1.20 n'a jamais été compilé).
+- **Moteur** (`aegisd` 0.3.0) : Risk Guardian 2.0 (risque de portefeuille aux stops, budget
+  journalier, réduction après pertes, jours autorisés, garde de protection des stops chez le
+  broker, stops structure / volatilité), Autonomy Commander (4 profils, autorisations liées au
+  compte, datées, révocables, journal des permissions), régimes détaillés, lecture
+  multi-unités, structure de marché, scanner d'opportunités, Micro-Profit 2.0, Recovery &
+  Hedge anti-martingale, Fast Learning (recherche de paramètres parallèle, audit de données,
+  retour arrière sur dérive), multi-actifs et corrélations, qualité d'exécution, alertes
+  webhook et **Telegram** (jeton hors configuration, D42).
+- **Connecteur** MQL5 1.20 (protocole 1.2 : mode de marge, latence broker).
+- **AEGIS Desktop** 0.3.0 : thème blanc et or, 25 pages en 5 groupes, palette Ctrl/Cmd+K.
+- **Documentation** : README, ARCHITECTURE, KNOWN_LIMITATIONS, TEST_REPORT, CHANGELOG,
+  DECISIONS (D42), `docs/` (dont AUTONOMY, MARKET_INTELLIGENCE, RECOVERY_HEDGE,
+  FAST_LEARNING, MULTI_ASSET).
+- **`RELEASES/`** (hors Git, sauf son README) : application et moteur macOS 0.3.0, sources du
+  connecteur, documentation, notes de version, empreintes ; la 0.2.0 est rangée dans
+  `RELEASES/archive-0.2.0/`.
+
+### Vérifié
+
+- 306 tests automatisés réussis (dont 29 de bout en bout avec le vrai protocole et le
+  simulateur), `cargo check --locked` du desktop, `npm run build`.
+- Moteur et `AEGIS.app` 0.3.0 compilés sur macOS arm64 ; moteur lancé avec le simulateur :
+  backtest, recherche de paramètres, audit de données, modèle de probabilité, autorisation
+  DEMO, refus motivés des signaux.
+- Les 25 pages rendues avec les vraies réponses du moteur, sans erreur.
+- CI GitHub du 2026-11-21 (0.2 + cerveau) : Windows et Linux (tests, moteurs, installateurs)
+  et compilation MQL5 du connecteur 1.10 réussis. CI de la 0.3 : `TEST_REPORT.md` § 6.
+
+### NON VÉRIFIÉ
+
+- Connecteur dans un vrai terminal MT5 et sur un compte démo (procédure :
+  `docs/MT5_CONNECTOR.md`) ; latence broker réelle.
+- Stratégies et modèles sur données réelles.
+- Service Windows et VPS ; envoi réel vers Telegram ou un webhook.
+- Pages de positions et d'ordres avec de vraies positions ; fenêtre native et Ctrl/Cmd+K au
+  clavier.
+- Test macOS dans la CI : GitHub refuse le runner `macos-14` pour ce compte (les tests macOS
+  sont faits localement). Retirer ou remplacer ce runner dans le workflow est une décision à
+  prendre par l'utilisateur.
+
+### Prochaines étapes (dans cet ordre)
+
+1. Lire le résultat de la CI 0.3 (`TEST_REPORT.md` § 6) et corriger ce qu'elle révèle,
+   notamment la compilation MQL5 du connecteur 1.20.
+2. Compte démo : `AegisSelfTest`, puis MONITOR, puis DEMO FULL AUTONOMY ; reporter les
+   mesures dans `TEST_REPORT.md`.
+3. Collecter l'historique broker, entraîner, backtester, lancer la recherche de paramètres.
+4. Configurer Telegram (`[ops] telegram_chat_id` + variable `AEGIS_TELEGRAM_TOKEN`) et
+   envoyer une notification de test.
 
 ### Reprendre
 ```sh
 cd aegis && . "$HOME/.cargo/env"
 git config core.filemode false     # disque exFAT : ignorer les droits
-./scripts/test.sh                  # 304 tests attendus
-cd desktop && npx tsc --noEmit
+./scripts/test.sh                  # 306 tests attendus
+cd desktop && npm run build
 ```
 
 ---

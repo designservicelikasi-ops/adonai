@@ -173,7 +173,9 @@ missed_horizon_bars = 200
 heartbeat_file = true            # data/heartbeat mis à jour toutes les 10 s
 backup_interval_hours = 24       # sauvegarde automatique ; 0 = désactivée
 backup_keep = 14                 # sauvegardes automatiques conservées
-alert_webhook_url = ""           # https://… recevant les alertes critiques en JSON (facultatif)
+alert_webhook_url = ""           # https://… recevant chaque alerte en JSON (facultatif)
+telegram_chat_id = ""            # chat Telegram recevant chaque alerte, ex. "-1001234567890" ; vide = désactivé
+telegram_token_env = "AEGIS_TELEGRAM_TOKEN"  # variable d'environnement contenant le jeton du bot (jamais dans ce fichier)
 disconnect_alert_s = 60          # alerte si MT5 est déconnecté en mode automatique
 
 [safety]

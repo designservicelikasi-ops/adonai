@@ -74,6 +74,6 @@ Chaque lot : compilation, tests, documentation, commit.
   **réduire**. Les valeurs par défaut des nouvelles limites n'interdisent rien de ce qui
   passait déjà, sauf ce qui était un risque non mesuré (position sans stop).
 - Les nouvelles colonnes et tables sont ajoutées par migrations ; chaque migration a son
-  script de retour arrière dans `crates/aegis-data/migrations/down/`.
+  script de retour arrière dans `crates/aegis-data/migrations_down/`.
 - Les champs de protocole ajoutés sont optionnels : un connecteur 1.1 reste accepté.
 - Ce qui ne peut pas être vérifié ici (MT5 réel, Windows, MetaEditor) est marqué NON VÉRIFIÉ.
