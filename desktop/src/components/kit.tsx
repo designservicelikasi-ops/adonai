@@ -142,4 +142,33 @@ export function Section({ title, right, children }: { title: string; right?: Rea
   return <Panel title={title} right={right} className="mb-4">{children}</Panel>;
 }
 
+/** A stored candle history (symbol, timeframe, origin) chosen among what the engine holds. */
+export interface Series { symbol: string; timeframe: string; origin: string; bars: number }
+
+export function useStoredSeries(): Series[] {
+  const q = useView("data", 15000);
+  return ((q.data?.candles ?? []) as [string, string, string, number][]).map(([symbol, timeframe, origin, bars]) => ({ symbol, timeframe, origin, bars }));
+}
+
+export const seriesKey = (x: Series) => `${x.symbol}|${x.timeframe}|${x.origin}`;
+
+export function SeriesSelect({ series, value, onChange, minBars = 0 }: { series: Series[]; value: string; onChange: (k: string) => void; minBars?: number }) {
+  const usable = series.filter((x) => x.bars >= minBars);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="historique">
+      {usable.length === 0 && <option value="">aucun historique stocké</option>}
+      {usable.map((x) => (
+        <option key={seriesKey(x)} value={seriesKey(x)}>
+          {x.symbol} {x.timeframe} — {x.origin === "synthetic" ? "SYNTHÉTIQUE" : x.origin} ({x.bars} bougies)
+        </option>
+      ))}
+    </select>
+  );
+}
+
+export function parseSeriesKey(k: string) {
+  const [symbol, timeframe, origin] = k.split("|");
+  return { symbol, timeframe, origin };
+}
+
 export type { Tone };

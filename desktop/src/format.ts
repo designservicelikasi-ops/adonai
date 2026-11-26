@@ -4,7 +4,7 @@ export const fmtSigned = (v: number | null | undefined, digits = 2) =>
   v === null || v === undefined || Number.isNaN(v) ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString("fr-FR", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 export const fmtPct = (v: number | null | undefined, digits = 1) => (v === null || v === undefined || Number.isNaN(v) ? "—" : `${(v * 100).toFixed(digits)} %`);
 export const fmtPctRaw = (v: number | null | undefined, digits = 2) => (v === null || v === undefined || Number.isNaN(v) ? "—" : `${v.toFixed(digits)} %`);
-export const fmtNum = (v: number | null | undefined, digits = 2) => (v === null || v === undefined || Number.isNaN(v) ? "—" : v.toLocaleString("fr-FR", { minimumFractionDigits: digits, maximumFractionDigits: digits }));
+export const fmtNum = (v: number | null | undefined, digits = 2) => (v === null || v === undefined || Number.isNaN(v) ? "—" : (v + 0).toLocaleString("fr-FR", { minimumFractionDigits: digits, maximumFractionDigits: digits }));
 export const fmtPrice = (v: number | null | undefined, digits = 5) => (v === null || v === undefined || !v ? "—" : v.toFixed(digits));
 export const fmtTime = (ms: number | null | undefined) => (!ms ? "—" : new Date(ms).toLocaleTimeString("fr-FR", { hour12: false }));
 export const fmtDateTime = (ms: number | null | undefined) =>

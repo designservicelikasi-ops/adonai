@@ -2,6 +2,23 @@
 
 ## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
 
+### Phase 8 — AEGIS Desktop blanc et or
+
+- Thème PURE WHITE & GOLD (jetons Tailwind, graphiques, composants) ; kit commun
+  (`components/kit.tsx` : en-tête, chargement / vide / erreur, confirmations, onglets,
+  sélecteur d'historique stocké).
+- **25 pages** reliées aux sections réelles du moteur, en 5 groupes (Pilotage, Intelligence,
+  Recherche, Contrôle, Système). Nouvelles : Command Center, Market Intelligence,
+  Opportunity Scanner, Micro-Profit, Position Intelligence, Autonomy Commander (octroi,
+  révocation, profil par défaut, journal des permissions), Risk Guardian, Recovery & Hedge,
+  Backtesting, Fast Learning (recherche de paramètres, audit des données, dérive),
+  Portefeuille (suspension d'un instrument, corrélations, exposition par devise),
+  Terminal MT5 (session, pont, qualité d'exécution), Sécurité, Notifications, Audit
+  (journal, ordres, commandes).
+- Palette Ctrl/Cmd+K pour aller à une page ; profil d'autonomie dans l'en-tête ; Command
+  Center par défaut.
+- Desktop en version 0.3.0 ; `src-tauri/Cargo.lock` remis en phase avec `aegis-client` 0.3.0.
+
 ### Phase 7 — Multi-actifs
 
 - Global Exposure Manager : corrélations des rendements (H1, 15 min), contrôle

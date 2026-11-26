@@ -1,6 +1,6 @@
 [package]
 name = "aegis-desktop"
-version = "0.2.0"
+version = "0.3.0"
 description = "AEGIS Desktop — supervision and control of the AEGIS engine"
 authors = ["AEGIS"]
 edition = "2021"

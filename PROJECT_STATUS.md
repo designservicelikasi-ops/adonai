@@ -15,35 +15,36 @@ desktop : `npx tsc --noEmit` sans erreur.
 | 5 Micro-Profit 2.0, Recovery & Hedge | fait | `ef768ac` |
 | 6 Fast Learning | fait | `81c599a` |
 | 7 Multi-actifs, exposition corrélée | fait | `9c80b6d` |
-| 8 Desktop blanc et or | **EN COURS** | ce commit |
+| 8 Desktop blanc et or | fait (contrôle visuel en mode aperçu) | ce commit |
 | 9 Validation, livraison, rapport final | à faire | — |
 
-### Phase 8 — ce qui est fait
+### Phase 8 — ce qui a été fait
 - Thème PURE WHITE & GOLD par les jetons (`desktop/tailwind.config.js`, `src/styles.css`,
-  graphiques, boutons, badges, modales) : les 11 pages existantes sont passées en clair.
-- Kit commun `src/components/kit.tsx` (en-tête, chargement / vide / erreur, contrôles,
-  confirmations, onglets).
-- Nouvelles pages écrites, reliées aux sections réelles du moteur (`/api/v1/view/<section>`) :
-  `CommandCenter.tsx`, `MarketIntel.tsx`, `Scanner.tsx`, `Micro.tsx`, `PositionIntel.tsx`.
-
-### Phase 8 — ce qui reste (dans cet ordre)
-1. Pages à écrire : `Recovery.tsx` (section `recovery`), `Autonomy.tsx` (`autonomy` ;
-   commandes `grant_autonomy`, `revoke_autonomy`, `set_default_profile`), `RiskGuardian.tsx`
-   (`guardian`, `kill`, `risk_config`), `Learning.tsx` (`learning`, `probability_models` ;
-   `run_parameter_sweep`, `audit_data`), `Backtesting.tsx` (`backtests`, `last_backtest`),
-   `Portfolio.tsx` (`portfolio` ; `set_symbol_enabled`), `Mt5.tsx` (`connection`, `bridge`,
-   `guardian.execution`), `Security.tsx` (`bridge.key_source`, `autonomy.events` refusés,
-   vérification d'audit), `Notifications.tsx` (`alerts`), `Audit.tsx` (`audit`, `orders`,
-   `commands`, `verify_audit`).
-2. **`App.tsx` : brancher les pages** (les nouvelles ne sont pas encore dans la navigation) ;
-   barre latérale groupée (Pilotage, Intelligence, Recherche, Contrôle, Système), raccourci
-   Ctrl/Cmd+K, en-tête avec profil d'autonomie.
-3. `npm run build`, contrôle visuel en mode aperçu (`VITE_AEGIS_PREVIEW=1`).
-4. Versions desktop 0.3.0 (`package.json`, `src-tauri/Cargo.toml`, `tauri.conf.json`).
+  graphiques, boutons, badges, modales) ; kit commun `src/components/kit.tsx`.
+- **25 pages** (+ Connexion) reliées aux sections réelles du moteur, en 5 groupes dans
+  `App.tsx` (registre `PAGES`) ; palette Ctrl/Cmd+K ; profil d'autonomie dans l'en-tête ;
+  Command Center par défaut. Nouvelles pages de cette reprise : `Autonomy`, `RiskGuardian`,
+  `Recovery`, `Backtesting`, `Learning`, `Portfolio`, `Mt5`, `Security`, `Notifications`,
+  `Audit`.
+- Vérifié le 2026-11-26 : `npm run build` (dont `tsc`) sans erreur ; `cargo check --locked`
+  du côté Tauri ; 304 tests Rust réussis. Contrôle visuel : moteur `aegisd --simulator`
+  isolé (ports 17878/17879, données temporaires) avec backtest, recherche de paramètres,
+  audit de données, modèle de probabilité et autorisation DEMO sur le simulateur ; 26
+  sections capturées en `preview-fixtures.json` ; aperçu (`VITE_AEGIS_PREVIEW=1`) compilé
+  **hors du dépôt** et chaque page capturée avec Chrome sans fenêtre (1440 × 900) : aucune
+  erreur de console. Défauts trouvés et corrigés : Backtesting et Fast Learning vides
+  (le résumé n'a pas `meta` dans `strategies`), valeurs tronquées (Risk Guardian), « −0,00 »
+  (`fmtNum`), icône émoji.
+- **NON VÉRIFIÉ** : aucune position n'a été ouverte pendant l'essai (signaux refusés faute de
+  probabilité calibrée sur M1/M5, comportement attendu) : les tableaux de positions, ordres,
+  couvertures et latences n'ont été vus que vides. La palette Ctrl/Cmd+K n'a pas été essayée
+  au clavier (pas d'automatisation du clavier ici). L'application `.app` n'a pas été
+  recompilée (`npm run tauri build`).
 
 ### Phase 9 — à faire
 Documentation finale (README, ARCHITECTURE, KNOWN_LIMITATIONS, TEST_REPORT), rapport final
-(partie 25), notification Telegram (optionnelle, sans clé dans le code), pousser sur GitHub
+(partie 25), notification Telegram (optionnelle, sans clé dans le code ; un webhook générique
+existe déjà : `[ops] alert_webhook_url`), pousser sur GitHub
 **avec l'accord de l'utilisateur** pour lancer la CI Windows/Linux/MQL5 (jamais exécutée
 depuis ces changements ; le connecteur 1.20 n'a jamais été compilé).
 
