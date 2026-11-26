@@ -113,6 +113,23 @@ pub struct SafetySection {
     pub live_trading_enabled: bool,
 }
 
+/// AEGIS AUTONOMY COMMANDER.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AutonomySection {
+    /// Profile without a grant: "observer" (no automatic research) or "research_autonomy".
+    /// A choice made in the application wins over the file.
+    pub default_profile: aegis_autonomy::Profile,
+    /// Duration of a LIVE grant made through `set_mode` (hours, 1..168).
+    pub live_default_hours: i64,
+}
+
+impl Default for AutonomySection {
+    fn default() -> Self {
+        AutonomySection { default_profile: aegis_autonomy::Profile::ResearchAutonomy, live_default_hours: 8 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RetentionSection {
@@ -147,6 +164,7 @@ pub struct EngineConfig {
     pub brain: aegis_brain::BrainConfig,
     pub ops: OpsSection,
     pub safety: SafetySection,
+    pub autonomy: AutonomySection,
     pub retention: RetentionSection,
 }
 
@@ -179,6 +197,12 @@ impl EngineConfig {
         self.probability.validate().map_err(|e| ConfigLoadError::Invalid(format!("probability: {e}")))?;
         self.news.validate().map_err(ConfigLoadError::Invalid)?;
         self.brain.validate().map_err(ConfigLoadError::Invalid)?;
+        if self.autonomy.default_profile.needs_grant() {
+            return bad("autonomy.default_profile must be observer or research_autonomy (trading profiles need an explicit grant)".into());
+        }
+        if !(1..=168).contains(&self.autonomy.live_default_hours) {
+            return bad("autonomy.live_default_hours must be within 1..168".into());
+        }
         if self.engine.signal_timeframes.is_empty() {
             return bad("engine.signal_timeframes must not be empty".into());
         }

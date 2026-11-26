@@ -224,3 +224,21 @@ actuelles.
 Une position sans stop est le pire état possible. Le stop réinstallé est celui **prévu à la
 décision** (jamais un autre inventé après coup) ; s'il est déjà dépassé, ou refusé deux fois,
 la position est clôturée. En MONITOR rien ne part (D7) : alerte seulement.
+
+## D38 — Le mode découle de l'autorisation
+DEMO AUTO et LIVE AUTO n'existent plus que sous une autorisation du Commander ; une boucle
+vérifie à chaque tour qu'un mode d'exécution correspond à une autorisation valable, sinon
+MONITOR. `set_mode` est conservé et crée/révoque l'autorisation correspondante.
+
+## D39 — Reprise après redémarrage : DÉMO seulement, sur demande
+D6 (démarrage en MONITOR) est conservé. Sur un VPS, l'autonomie DÉMO doit pouvoir survivre à
+un redémarrage du service : l'utilisateur peut marquer une autorisation DÉMO « persistante » ;
+elle reprend quand le même compte se reconnecte. Jamais pour LIVE.
+
+## D40 — Les actions de protection ne demandent pas de permission
+Un permis manquant ne doit jamais empêcher de réinstaller un stop ou d'appliquer l'arrêt
+d'urgence : ces actions réduisent le risque. Elles restent tracées.
+
+## D41 — Profil par défaut RESEARCH AUTONOMY
+Le cerveau réentraînait déjà automatiquement ses modèles en 0.2 ; OBSERVER l'aurait arrêté
+sans que l'utilisateur l'ait demandé. Le défaut conserve ce comportement ; OBSERVER se choisit.

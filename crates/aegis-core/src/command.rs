@@ -72,6 +72,26 @@ pub enum Command {
     /// Set aside a version the brain proposed (it stays stored).
     BrainDismissCandidate { model_id: String },
     VerifyAudit,
+    /// Autonomy Commander: grant DEMO FULL AUTONOMY or LIVE AUTHORIZED AUTONOMY for the
+    /// connected account. `confirmation` (LIVE only): "<login> J'ACCEPTE LE RISQUE REEL".
+    GrantAutonomy {
+        profile: aegis_autonomy::Profile,
+        #[serde(default)]
+        duration_minutes: Option<i64>,
+        #[serde(default)]
+        persist_across_restart: bool,
+        #[serde(default)]
+        confirmation: String,
+        #[serde(default)]
+        note: String,
+    },
+    /// Immediate revocation of the active grant (back to MONITOR).
+    RevokeAutonomy {
+        #[serde(default)]
+        reason: String,
+    },
+    /// Profile without a grant: observer or research_autonomy.
+    SetDefaultProfile { profile: aegis_autonomy::Profile },
     Shutdown,
 }
 
@@ -118,6 +138,24 @@ impl Engine {
             Command::EvaluateShadowHistory { symbol, timeframe, origin } => self.cmd_shadow_history(&symbol, timeframe, origin).await,
             Command::PromoteChallenger { candidate_id } => self.cmd_promote_challenger(&candidate_id).await,
             Command::SetMode { mode, confirmation } => self.cmd_set_mode(mode, &confirmation).await,
+            Command::GrantAutonomy { profile, duration_minutes, persist_across_restart, confirmation, note } => {
+                if profile == aegis_autonomy::Profile::LiveAuthorizedAutonomy
+                    && !self.strategies.iter().any(|s| s.enabled && s.stage == StrategyStage::LiveApproved)
+                {
+                    Err("LIVE refusé: aucune stratégie n'est approuvée pour le réel".into())
+                } else {
+                    let req = aegis_autonomy::GrantRequest { profile, duration_ms: duration_minutes.map(|m| m * 60_000), persist_across_restart, note };
+                    self.grant_autonomy(req, &confirmation).await
+                }
+            }
+            Command::RevokeAutonomy { reason } => {
+                let reason = if reason.trim().is_empty() { "révocation par l'utilisateur".to_string() } else { reason };
+                Ok(match self.revoke_autonomy("user", &reason).await {
+                    Some(g) => format!("autorisation {} révoquée — mode MONITOR", g.grant_id),
+                    None => "aucune autorisation active — mode MONITOR".into(),
+                })
+            }
+            Command::SetDefaultProfile { profile } => self.set_default_profile(profile).await,
             Command::Kill { reason } => {
                 let reason = if reason.trim().is_empty() { "arrêt manuel".to_string() } else { reason };
                 self.engage_kill(&reason, "user").await;
@@ -131,7 +169,7 @@ impl Engine {
                     }
                     self.kill_plan_pending = false;
                     // Automation never resumes by itself after an emergency stop.
-                    self.set_mode(Mode::Monitor, "réinitialisation de l'arrêt d'urgence").await;
+                    self.revoke_autonomy("engine", "réinitialisation de l'arrêt d'urgence").await;
                     self.audit("user", "kill_switch_reset", json!({})).await;
                     self.log("warn", "risk", "arrêt d'urgence réinitialisé manuellement; mode MONITOR".into());
                     Ok("arrêt d'urgence réinitialisé — le moteur reste en MONITOR".into())
@@ -222,7 +260,7 @@ impl Engine {
             return Ok(format!("déjà en mode {}", mode.label()));
         }
         if mode == Mode::Monitor {
-            self.set_mode(Mode::Monitor, "demande de l'utilisateur").await;
+            self.revoke_autonomy("user", "demande de l'utilisateur").await;
             return Ok("mode MONITOR: aucune exécution".into());
         }
         if self.risk.kill_state().active {
@@ -239,7 +277,9 @@ impl Engine {
                 if !sim && account.trade_mode == AccountTradeMode::Real {
                     return Err("DEMO AUTO refusé: le compte connecté est un compte RÉEL".into());
                 }
-                self.set_mode(Mode::DemoAuto, "demande de l'utilisateur").await;
+                // Routed through the Autonomy Commander: a DEMO grant bound to this account.
+                let req = aegis_autonomy::GrantRequest { profile: aegis_autonomy::Profile::DemoFullAutonomy, duration_ms: None, persist_across_restart: false, note: "set_mode demo_auto".into() };
+                self.grant_autonomy(req, "").await?;
                 Ok(if sim { "DEMO AUTO activé sur le SIMULATEUR".into() } else { format!("DEMO AUTO activé sur le compte de démonstration {}", account.login) })
             }
             Mode::LiveAuto => {
@@ -263,11 +303,15 @@ impl Engine {
                     return Err(format!("confirmation incorrecte: saisissez exactement « {expected} »"));
                 }
                 let login = account.login;
-                self.live_armed = true;
-                self.set_mode(Mode::LiveAuto, "armement explicite par l'utilisateur").await;
-                self.live_armed = true;
-                self.audit("user", "live_armed", json!({ "login": login })).await;
-                Ok(format!("LIVE AUTO ARMÉ sur le compte réel {login}"))
+                let hours = self.cfg.autonomy.live_default_hours;
+                let req = aegis_autonomy::GrantRequest {
+                    profile: aegis_autonomy::Profile::LiveAuthorizedAutonomy,
+                    duration_ms: Some(hours * 3_600_000),
+                    persist_across_restart: false,
+                    note: "set_mode live_auto".into(),
+                };
+                self.grant_autonomy(req, confirmation).await?;
+                Ok(format!("LIVE AUTO ARMÉ sur le compte réel {login} pour {hours} h"))
             }
             Mode::Monitor => unreachable!("handled above"),
         }

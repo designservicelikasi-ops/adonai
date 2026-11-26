@@ -987,3 +987,65 @@ async fn an_adapted_stop_never_borrows_the_strategy_backtest_probability() {
     r.sim.stop().await;
     r.h.shutdown().await;
 }
+
+// ------------------------------------------------------------------ Autonomy Commander (0.3)
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn autonomy_grants_are_bound_audited_revocable_and_only_persistent_demo_grants_resume() {
+    use aegis_autonomy::Profile;
+    let dir = temp_dir("autonomy");
+    let cfg = config(&dir);
+    seed_evidence(&dir, 60, 100).await;
+    let h = start(cfg.clone()).await.unwrap();
+    let v = h.snapshot();
+    assert_eq!((v.autonomy.profile.as_str(), v.mode), ("research_autonomy", Mode::Monitor), "no grant at start");
+    assert!(v.autonomy.capabilities.iter().all(|c| !c.trading || !c.allowed));
+    // No account: a grant is always bound to an account.
+    let e = h.command(Command::GrantAutonomy { profile: Profile::DemoFullAutonomy, duration_minutes: None, persist_across_restart: true, confirmation: String::new(), note: String::new() }).await.unwrap_err();
+    assert!(e.contains("terminal"), "{e}");
+    let sim = spawn(sim_config(&h, &cfg, breakout_then_hold()));
+    wait_for(&h, "connected", |v| v.account.is_some()).await;
+
+    // Grant DEMO FULL AUTONOMY, persistent across restarts.
+    let msg = must(&h, Command::GrantAutonomy { profile: Profile::DemoFullAutonomy, duration_minutes: Some(120), persist_across_restart: true, confirmation: String::new(), note: "test".into() }).await;
+    assert!(msg.contains("900001"), "{msg}");
+    let v = wait_for(&h, "demo mode under the grant", |v| v.mode == Mode::DemoAuto && v.autonomy.active_grant.is_some()).await;
+    let g = v.autonomy.active_grant.clone().unwrap();
+    assert_eq!((g.account_login, g.granted_by.as_str(), g.persist_across_restart), (Some(900_001), "user", true));
+    assert!(g.expires_ms.is_some_and(|e| e > now_ms()));
+    assert!(v.autonomy.capabilities.iter().any(|c| c.capability == aegis_autonomy::Capability::OpenPositions && c.allowed));
+    // A LIVE grant on the simulator is refused whatever the phrase.
+    assert!(h.command(Command::GrantAutonomy { profile: Profile::LiveAuthorizedAutonomy, duration_minutes: Some(60), persist_across_restart: false, confirmation: "900001 J'ACCEPTE LE RISQUE REEL".into(), note: String::new() }).await.is_err());
+    // Trading profiles cannot be the default.
+    assert!(h.command(Command::SetDefaultProfile { profile: Profile::DemoFullAutonomy }).await.is_err());
+
+    // Restart: the persistent demo grant comes back and DEMO AUTO resumes once the account reconnects.
+    sim.stop().await;
+    h.shutdown().await;
+    let h = start(cfg.clone()).await.unwrap();
+    assert_eq!(h.snapshot().mode, Mode::Monitor, "always boots in MONITOR");
+    let sim = spawn(sim_config(&h, &cfg, breakout_then_hold()));
+    let v = wait_for(&h, "demo grant resumed after restart", |v| v.mode == Mode::DemoAuto).await;
+    assert_eq!(v.autonomy.active_grant.as_ref().map(|x| x.grant_id.clone()), Some(g.grant_id.clone()));
+
+    // Immediate revocation.
+    let msg = must(&h, Command::RevokeAutonomy { reason: "fin du test".into() }).await;
+    assert!(msg.contains("révoquée"), "{msg}");
+    let v = wait_for(&h, "monitor after revocation", |v| v.mode == Mode::Monitor && v.autonomy.active_grant.is_none()).await;
+    let v = wait_for(&h, "permission trail visible", |v| v.autonomy.events.iter().any(|e| e.event == "revoke")).await;
+    for ev in ["grant", "resume", "revoke"] {
+        assert!(v.autonomy.events.iter().any(|e| e.event == ev), "permission trail lacks `{ev}`: {:?}", v.autonomy.events.iter().map(|e| &e.event).collect::<Vec<_>>());
+    }
+    // Observer as default: no automatic research.
+    must(&h, Command::SetDefaultProfile { profile: Profile::Observer }).await;
+    let v = wait_for(&h, "observer", |v| v.autonomy.profile == "observer").await;
+    assert!(v.autonomy.capabilities.iter().any(|c| c.capability == aegis_autonomy::Capability::TrainModels && !c.allowed));
+    sim.stop().await;
+    h.shutdown().await;
+
+    let store = Store::open(&dir.join("aegis.db")).await.unwrap();
+    let grants = store.grants(10).await.unwrap();
+    assert!(grants.iter().any(|x| x.grant_id == g.grant_id && x.revoked_by.as_deref() == Some("user") && x.revoke_reason.as_deref() == Some("fin du test")));
+    let audit: Vec<String> = store.audit_tail(2_000).await.unwrap().into_iter().map(|a| a.event).collect();
+    assert!(audit.iter().any(|e| e == "autonomy_grant") && audit.iter().any(|e| e == "autonomy_revoke"));
+}

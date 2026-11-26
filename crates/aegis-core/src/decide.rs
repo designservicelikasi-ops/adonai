@@ -73,7 +73,10 @@ impl Engine {
                 }
                 StrategyAction::Exit { reason } => {
                     if let Some(p) = held {
-                        if self.mode.can_execute() {
+                        let d = self.permit(aegis_autonomy::Capability::ClosePositions, aegis_autonomy::Requester::Strategy);
+                        if self.mode.can_execute() && !d.allowed {
+                            self.permission_event("denied", "commander", Some(&d), format!("sortie {id} sur {}", p.ticket)).await;
+                        } else if self.mode.can_execute() {
                             let _ = self.close_position(&p, None, &format!("sortie de la stratégie {id}: {reason}")).await;
                         } else {
                             self.log("info", "strategy", format!("{id}: signal de sortie sur {} ({reason}) — non exécuté en mode MONITOR", p.symbol));
@@ -134,6 +137,11 @@ impl Engine {
         checks.push(check("ordre_en_cours", !busy, if busy { "un ordre est déjà en cours sur cet instrument" } else { "aucun ordre en cours" }));
         if let Some(p) = &stop_plan {
             checks.push(check("stop_initial", true, p.reason.clone()));
+        }
+        let requester = if self.cfg.brain.applies_to(symbol) { aegis_autonomy::Requester::Brain } else { aegis_autonomy::Requester::Strategy };
+        let permission = self.permit(aegis_autonomy::Capability::OpenPositions, requester);
+        if self.mode.can_execute() {
+            checks.push(check("autonomie", permission.allowed, permission.reason.clone()));
         }
 
         // AI filter: only a validated model may veto; an unvalidated one is ignored.
@@ -349,6 +357,7 @@ impl Engine {
                                 "ordre {cid} envoyé: {} {} {} lot(s), SL {sl}, TP {tp} (décision {decision_id})",
                                 intent.side, symbol, auth.volume
                             ));
+                            self.permission_event("action", "engine", Some(&permission), format!("entrée {} {symbol} {} lot(s), ordre {cid}, décision {decision_id}", intent.side, auth.volume)).await;
                             dv.cid = Some(cid);
                         }
                         Err(why) => {

@@ -88,8 +88,16 @@ impl Engine {
             let mut executed = false;
             let mut note = String::new();
             if action.kind != PositionActionKind::Hold {
+                let cap = match action.kind {
+                    PositionActionKind::Close | PositionActionKind::ClosePartial => aegis_autonomy::Capability::ClosePositions,
+                    _ => aegis_autonomy::Capability::ModifyProtections,
+                };
+                let permission = self.permit(cap, aegis_autonomy::Requester::PositionIntelligence);
                 if !self.mode.can_execute() {
                     note = "MONITOR: non exécuté".into();
+                } else if !permission.allowed {
+                    note = format!("permission refusée: {}", permission.reason);
+                    self.permission_event("denied", "commander", Some(&permission), format!("{} position {}", action.kind.label(), p.ticket)).await;
                 } else if self.modifying.get(&p.ticket).is_some_and(|t| now - *t < MODIFY_PENDING_MS) {
                     note = "modification précédente en attente de réponse".into();
                 } else {
@@ -112,6 +120,7 @@ impl Engine {
                         Ok(_) => {
                             executed = true;
                             self.modifying.insert(p.ticket, now);
+                            self.permission_event("action", "engine", Some(&permission), format!("{} position {}: {}", action.kind.label(), p.ticket, action.reason)).await;
                         }
                         Err(e) => note = format!("refusé: {e}"),
                     }

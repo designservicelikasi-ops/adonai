@@ -279,7 +279,15 @@ impl Engine {
                 }
             };
             if due {
-                self.start_brain_retrain(None).await;
+                // Automatic retraining is research autonomy: the Commander must allow it.
+                let d = self.permit(aegis_autonomy::Capability::TrainModels, aegis_autonomy::Requester::Brain);
+                if d.allowed {
+                    self.start_brain_retrain(None).await;
+                } else {
+                    self.brain.last_retrain_ms = Some(now);
+                    self.permission_event("denied", "commander", Some(&d), "réentraînement automatique du cerveau non effectué".into()).await;
+                    self.log("info", "autonomy", format!("réentraînement automatique ignoré: {}", d.reason));
+                }
             }
         }
     }

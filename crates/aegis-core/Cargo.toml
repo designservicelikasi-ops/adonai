@@ -8,6 +8,7 @@ publish.workspace = true
 aegis-types.workspace = true
 aegis-data.workspace = true
 aegis-risk.workspace = true
+aegis-autonomy.workspace = true
 aegis-protocol = { workspace = true, features = ["io"] }
 aegis-market.workspace = true
 aegis-strategy.workspace = true

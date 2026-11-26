@@ -3,8 +3,20 @@
 version = 4
 
 [[package]]
+name = "aegis-autonomy"
+version = "0.3.0"
+dependencies = [
+ "aegis-types",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "aegis-backtest"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-market",
  "aegis-strategy",
@@ -16,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-brain"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-data",
  "aegis-probability",
@@ -28,7 +40,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-client"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "rustls",
  "serde",
@@ -39,8 +51,9 @@ dependencies = [
 
 [[package]]
 name = "aegis-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
+ "aegis-autonomy",
  "aegis-backtest",
  "aegis-brain",
  "aegis-data",
@@ -73,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-data"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-types",
  "hex",
@@ -88,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-execution"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-data",
  "aegis-protocol",
@@ -104,7 +117,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-learning"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-market",
  "aegis-types",
@@ -115,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-market"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-types",
  "serde",
@@ -123,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-news"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-types",
  "chrono",
@@ -136,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-probability"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-learning",
  "aegis-market",
@@ -149,7 +162,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-types",
  "hex",
@@ -164,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-risk"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-market",
  "aegis-types",
@@ -179,7 +192,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-shadow"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-backtest",
  "aegis-strategy",
@@ -191,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-simterminal"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-backtest",
  "aegis-market",
@@ -203,7 +216,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-strategy"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-market",
  "aegis-types",
@@ -214,7 +227,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-types"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "hex",
@@ -225,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "aegisd"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aegis-backtest",
  "aegis-client",

@@ -2,6 +2,19 @@
 
 ## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
 
+### Phase 3 — AEGIS AUTONOMY COMMANDER
+
+- Crate `aegis-autonomy` : 18 capacités, 4 profils (OBSERVER, RESEARCH, DEMO FULL, LIVE
+  AUTHORIZED), autorisations liées au compte, datées, révocables ; LIVE lié à l'empreinte de
+  la configuration de risque, 7 jours au plus, jamais restauré.
+- Commandes `grant_autonomy`, `revoke_autonomy`, `set_default_profile` ; `set_mode` passe par
+  le Commander (compatibilité conservée). Contrôle `autonomie` dans les décisions ; permissions
+  vérifiées pour la gestion des positions, les sorties de stratégie et le réentraînement
+  automatique ; actions de protection jamais bloquées mais enregistrées.
+- Migration 0007 (`permission_grants`, `permission_events`) avec script de retour arrière
+  testé. Section `[autonomy]`. Section `autonomy` de l'état publié. `docs/AUTONOMY.md`.
+- Test d'architecture : seul le canal utilisateur peut confirmer une autorisation.
+
 ### Phase 2 — Risk Guardian 2.0 et exécution
 
 - **Mode du compte** (hedging / netting / exchange) transmis par le connecteur (protocole 1.2,

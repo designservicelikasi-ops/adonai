@@ -65,6 +65,8 @@ pub(crate) struct Cache {
     pub journal: Vec<aegis_data::JournalEntry>,
     pub probability_live: Option<aegis_probability::metrics::CalibrationReport>,
     pub performance: crate::performance::PerformanceReport,
+    pub grants: Vec<aegis_data::PermissionGrantRow>,
+    pub permission_events: Vec<aegis_data::PermissionEventRow>,
 }
 
 pub(crate) struct Engine {
@@ -104,6 +106,7 @@ pub(crate) struct Engine {
     pub shadow_saved_ms: TimestampMs,
     pub brain: crate::brain::BrainState,
     pub protection: aegis_risk::ProtectionGuard,
+    pub commander: aegis_autonomy::Commander,
     /// Ticket -> stop planned at the decision (what the guard re-installs), persisted.
     pub planned_sl: HashMap<i64, f64>,
     pub latency: crate::latency::LatencyTracker,
@@ -337,6 +340,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         shadow_saved_ms: now,
         brain: Default::default(),
         protection: Default::default(),
+        commander: aegis_autonomy::Commander::new(cfg.autonomy.default_profile),
         planned_sl,
         latency: Default::default(),
         partial_done,
@@ -381,6 +385,7 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
     for d in engine.store.deals_since(now - 30 * 86_400_000, 200).await?.into_iter().rev() {
         engine.deals.push_back(d);
     }
+    engine.load_autonomy().await;
     engine.load_probability_models().await;
     engine.load_brain().await;
     // First automatic backup one period after the last one (not at every restart).
@@ -456,6 +461,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         shadow_dropped: 0,
         brain: Default::default(),
         guardian: Default::default(),
+        autonomy: Default::default(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -1004,6 +1010,7 @@ impl Engine {
         }
         self.maybe_fetch_news(now);
         self.persist_shadow(now).await;
+        self.autonomy_tick().await;
         self.brain_tick(now).await;
         self.run_ops(now).await;
         // The probe runs in the background so a stuck database never stalls the engine.
@@ -1042,6 +1049,12 @@ impl Engine {
         }
         if let Ok(v) = self.store.audit_tail(200).await {
             self.cache.audit = v;
+        }
+        if let Ok(v) = self.store.grants(50).await {
+            self.cache.grants = v;
+        }
+        if let Ok(v) = self.store.permission_events(200).await {
+            self.cache.permission_events = v;
         }
         if let Ok(v) = self.store.list_backtests(50).await {
             self.cache.backtests = v;
@@ -1240,6 +1253,7 @@ impl Engine {
             shadow_dropped: self.shadow_dropped.load(std::sync::atomic::Ordering::Relaxed),
             brain: self.brain_view(now),
             guardian: self.guardian_view(),
+            autonomy: self.autonomy_view(),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),

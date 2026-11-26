@@ -5,7 +5,7 @@ members = ["crates/*"]
 exclude = ["desktop/src-tauri"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 publish = false
 
@@ -26,6 +26,7 @@ aegis-news = { path = "crates/aegis-news" }
 aegis-shadow = { path = "crates/aegis-shadow" }
 aegis-client = { path = "crates/aegis-client" }
 aegis-brain = { path = "crates/aegis-brain" }
+aegis-autonomy = { path = "crates/aegis-autonomy" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal", "fs"] }
 serde = { version = "1", features = ["derive"] }

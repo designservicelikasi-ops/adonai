@@ -363,3 +363,35 @@ async fn risk_config_models_and_backtests_roundtrip() {
     assert_eq!(s.backtest_trade_count("bt-1").await.unwrap(), 1);
     assert_eq!(s.list_backtests(5).await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn permission_grants_and_events_are_stored_and_the_migration_is_reversible() {
+    let dir = std::env::temp_dir().join(format!("aegis-perm-{}", aegis_types::new_id("t")));
+    let path = dir.join("aegis.db");
+    let s = Store::open(&path).await.unwrap();
+    let g = PermissionGrantRow {
+        grant_id: "g1".into(), profile: "demo_full_autonomy".into(), account_login: Some(7), account_server: Some("S".into()),
+        granted_by: "user:api".into(), granted_ms: 1, expires_ms: Some(100), risk_config_hash: None, persist_across_restart: true,
+        revoked_ms: None, revoked_by: None, revoke_reason: None, note: "test".into(),
+    };
+    s.upsert_grant(&g).await.unwrap();
+    assert_eq!(s.open_grants().await.unwrap(), vec![g.clone()]);
+    s.upsert_grant(&PermissionGrantRow { revoked_ms: Some(50), revoked_by: Some("user:api".into()), revoke_reason: Some("fin".into()), ..g.clone() }).await.unwrap();
+    assert!(s.open_grants().await.unwrap().is_empty());
+    assert_eq!(s.grants(10).await.unwrap()[0].revoke_reason.as_deref(), Some("fin"));
+    s.insert_permission_event(&PermissionEventRow { ts_ms: 2, event: "denied".into(), actor: "commander".into(), requester: "brain".into(),
+        capability: "open_positions".into(), profile: "observer".into(), allowed: false, ..Default::default() }).await.unwrap();
+    let ev = s.permission_events(10).await.unwrap();
+    assert_eq!((ev.len(), ev[0].allowed, ev[0].capability.as_str()), (1, false, "open_positions"));
+    // Other data, to prove the rollback touches nothing else.
+    s.kv_set("survivor", &42).await.unwrap();
+
+    // Rollback of 0007, then the migration applies again cleanly.
+    let down = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/migrations_down/0007_autonomy.down.sql")).unwrap();
+    s.run_sql_script(&down).await.unwrap();
+    assert!(s.grants(10).await.is_err(), "table dropped");
+    assert_eq!(s.kv_get::<i64>("survivor").await.unwrap(), Some(42));
+    s.migrate().await.unwrap();
+    assert!(s.grants(10).await.unwrap().is_empty());
+    s.close().await;
+}

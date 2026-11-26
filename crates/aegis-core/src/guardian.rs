@@ -21,6 +21,10 @@ impl Engine {
         let can_send = self.mode.can_execute() && self.conn.is_some();
         let actions = self.protection.review(&mine, &self.planned_sl, &self.specs, &prices, rc.missing_stop_policy, rc.missing_stop_grace_ms, can_send, now);
         for action in actions {
+            // Protective actions are never blocked by a permission, but they are recorded.
+            let cap = if matches!(action, ProtectionAction::Close { .. }) { aegis_autonomy::Capability::ClosePositions } else { aegis_autonomy::Capability::ModifyProtections };
+            let d = self.permit(cap, aegis_autonomy::Requester::RiskGuardian);
+            self.permission_event("action", "risk_guardian", Some(&d), format!("{action:?}")).await;
             match action {
                 ProtectionAction::Alert { ticket, message } => {
                     self.audit("guardian", "protection_alert", json!({ "ticket": ticket, "message": message })).await;

@@ -170,6 +170,10 @@ disconnect_alert_s = 60          # alerte si MT5 est déconnecté en mode automa
 [safety]
 live_trading_enabled = false     # LIVE AUTO est impossible tant que ceci vaut false
 
+[autonomy]                       # AEGIS AUTONOMY COMMANDER (voir docs/AUTONOMY.md)
+default_profile = "research_autonomy"  # sans autorisation : "observer" (aucune recherche automatique) ou "research_autonomy"
+live_default_hours = 8           # durée d'une autorisation LIVE donnée par set_mode (1..168 h)
+
 [retention]
 candle_days = 1095
 snapshot_days = 180

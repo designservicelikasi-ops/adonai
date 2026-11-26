@@ -34,6 +34,9 @@ commandes sans paramètre). Réponse `200 {"ok":true,"message":…}` ou `409 {"o
 | `type` | `args` | Remarque |
 |---|---|---|
 | `set_mode` | `{"mode":"monitor"\|"demo_auto"\|"live_auto","confirmation":""}` | LIVE : `"<compte> J'ACCEPTE LE RISQUE REEL"` |
+| `grant_autonomy` | `{"profile":"demo_full_autonomy"\|"live_authorized_autonomy","duration_minutes":120,"persist_across_restart":false,"confirmation":"","note":""}` | lié au compte connecté ; LIVE : durée obligatoire (≤ 7 j) et `"<compte> J'ACCEPTE LE RISQUE REEL"` |
+| `revoke_autonomy` | `{"reason":""}` | révocation immédiate, retour en MONITOR |
+| `set_default_profile` | `{"profile":"observer"\|"research_autonomy"}` | profil sans autorisation |
 | `kill` | `{"reason":""}` | arrêt d'urgence |
 | `reset_kill` | `{"phrase":"RESET AEGIS"}` | le moteur reste en MONITOR |
 | `set_risk_config` | objet `RiskConfig` complet | validé, versionné, audité |

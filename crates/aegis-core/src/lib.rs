@@ -1,6 +1,7 @@
 //! AEGIS CORE — the engine: lifecycle, configuration, orchestration of every
 //! module, supervision, and the bridge to the trading terminal.
 
+pub mod autonomy;
 mod brain;
 mod bridge;
 mod command;

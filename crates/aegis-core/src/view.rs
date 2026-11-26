@@ -308,6 +308,9 @@ pub struct EngineView {
     /// Risk Guardian 2.0: protection of open positions and execution quality (0.3).
     #[serde(default)]
     pub guardian: GuardianView,
+    /// AEGIS AUTONOMY COMMANDER: profile, grant, capabilities, permission trail (0.3).
+    #[serde(default)]
+    pub autonomy: crate::autonomy::AutonomyView,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,

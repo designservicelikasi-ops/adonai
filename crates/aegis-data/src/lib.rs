@@ -4,8 +4,10 @@
 //! append-only (enforced by triggers) and hash-chained so tampering is detectable.
 
 mod journal;
+mod permissions;
 mod records;
 pub use journal::{DatasetRow, JournalEntry, ProbabilityModelRow};
+pub use permissions::{PermissionEventRow, PermissionGrantRow};
 pub use records::*;
 
 use aegis_types::{
