@@ -1,5 +1,67 @@
 # AEGIS — État du projet et rapport de livraison
 
+## POINT DE REPRISE (2026-11-26, après la livraison 0.3.0)
+
+**Où en est le projet.** Les 9 phases de la directive « Master Upgrade » sont faites. Version
+0.3.0 livrée, dernier commit `343b866`, `main` identique à `origin/main`
+(github.com/designservicelikasi-ops/adonai, dépôt public). 306 tests réussis ; CI 0.3 réussie
+sous Windows et Linux, connecteur MQL5 1.20 compilé sans erreur (`TEST_REPORT.md` § 6).
+Rien n'est en cours, aucune modification non commitée.
+
+**Attention à l'emplacement.** Le projet vivant est `/Volumes/HIKSEMI/adonai3/adonai/aegis`.
+`/Volumes/HIKSEMI/adonai/aegis` est une vieille copie 0.1.0 : ne pas y travailler.
+
+**Avant de reprendre :**
+```sh
+cd /Volumes/HIKSEMI/adonai3/adonai/aegis && . "$HOME/.cargo/env"
+git config core.filemode false   # disque exFAT : sinon tous les fichiers paraissent modifiés
+git pull                         # au cas où des commits auraient été faits ailleurs
+./scripts/test.sh                # 306 réussis attendus
+cd desktop && npm run build      # tsc + Vite sans erreur attendus
+```
+Si le dossier a été copié ou déplacé avec son `target/`, faire d'abord `cargo clean` : sinon
+des binaires de test pointent vers l'ancien chemin (« No such file or directory »).
+
+**Prochaines tâches, dans cet ordre :**
+1. **Décider du job macOS de la CI** (`.github/workflows/build.yml`, matrice `test`,
+   `macos-14`) : GitHub le refuse pour ce compte (« configuration not supported »), si bien que
+   chaque exécution s'affiche « cancelled ». Choix de l'utilisateur : le retirer, essayer
+   `macos-latest`, ou le laisser. (Une modification automatique a été bloquée : à faire
+   seulement sur demande explicite.)
+2. **Essai sur un compte démo MT5** (PC Windows avec MetaTrader 5) : récupérer le `.ex5` dans
+   l'artifact `aegis-connector-mt5` de la CI (ou compiler `mt5/` dans MetaEditor), puis suivre
+   `docs/MT5_CONNECTOR.md` : `AegisSelfTest` doit afficher « ALL PASSED », puis moteur en
+   MONITOR, puis DEMO FULL AUTONOMY (page *Autonomy Commander*). Reporter dans
+   `TEST_REPORT.md` ce qui est réellement observé (latence broker, mode de marge, stops).
+3. **Données réelles** : collecter l'historique broker par le connecteur, entraîner les
+   modèles de probabilité, backtester, lancer la recherche de paramètres (page *Fast
+   Learning*). Aucune stratégie n'a encore de preuve sur un marché réel.
+4. **Telegram (facultatif)** : créer un bot, `[ops] telegram_chat_id = "…"` dans la
+   configuration du serveur, jeton dans la variable `AEGIS_TELEGRAM_TOKEN` (jamais dans un
+   fichier), puis page *Notifications* → « Envoyer une notification de test ».
+5. Plus tard : regarder les pages Positions / Position Intelligence / Recovery / Terminal MT5
+   avec de vraies positions (vues vides seulement) ; essayer Ctrl/Cmd+K au clavier ; remesurer
+   la capacité en 0.3 (`cargo test --release -p aegis-core --test capacity -- --ignored
+   --nocapture`) ; avertissements de style de clippy (non bloquants).
+
+**Recettes utiles :**
+- *État de la CI sans `gh`* :
+  `curl -s https://api.github.com/repos/designservicelikasi-ops/adonai/actions/runs?per_page=3`
+  puis `…/actions/runs/<id>/jobs` (lecture publique ; les journaux et artifacts demandent un
+  compte connecté sur github.com).
+- *Contrôle visuel des pages sans fenêtre* : moteur isolé avec une copie de
+  `config/aegis.example.toml` (autre `data_dir`, ports 17878/17879, `tls = false`),
+  `aegisd --config <copie> run --simulator` ; capturer `/api/v1/summary` et
+  `/api/v1/view/<section>` dans `preview-fixtures.json` ; `VITE_AEGIS_PREVIEW=1 npx vite build
+  --outDir <dossier hors du dépôt>` ; y copier les captures ; servir le dossier et ouvrir
+  `#page=<id>` dans Chrome sans fenêtre (`--force-prefers-reduced-motion`, sinon les panneaux
+  animés apparaissent vides sur la capture).
+- `aegisd` n'a **pas** d'option `--help` : une option inconnue est ignorée et, sans commande,
+  `aegisd` démarre le moteur (en MONITOR) avec `data/` dans le dossier courant. La liste des
+  commandes est dans l'en-tête de `crates/aegisd/src/main.rs`.
+- Livrables locaux : `RELEASES/` (hors Git sauf son README) ; installateurs Windows/Linux :
+  artifacts de la CI.
+
 ## RAPPORT FINAL 0.3.0 (2026-11-26) — directive « Master Upgrade »
 
 Audit et plan : `docs/AUDIT_V3.md`. Détail des ajouts : `CHANGELOG.md` (section 0.3.0).
