@@ -89,4 +89,23 @@ broker (compte démo réel nécessaire).
 
 ## 6. CI de la 0.3
 
-En attente de l'exécution déclenchée par l'envoi sur GitHub.
+Exécution `45893676863` du **2026-11-26** (20:48 → 20:58 UTC), commit `152609a` (0.3.0,
+connecteur 1.20), résultats lus sur l'API publique de GitHub :
+
+| Job | Résultat observé |
+|---|---|
+| `test (ubuntu-22.04)` | **réussi** — tests du workspace 34 s (compilation en cache), clippy |
+| `test (windows-latest)` | **réussi** — tests du workspace 119 s, clippy |
+| `test (macos-14)` | annulé au bout d'une seconde : runner refusé pour ce compte (voir § 2) |
+| `server (ubuntu-22.04)` | **réussi** — moteur release, test de fumée (simulateur + API TLS), archive (6,9 Mo) |
+| `server (windows-latest)` | **réussi** — idem, `aegisd.exe` (archive 8,1 Mo) |
+| `desktop (ubuntu-22.04)` | **réussi** — AppImage, `.deb`, `.rpm` ; installation et désinstallation du `.deb` |
+| `desktop (windows-latest)` | **réussi** — installateurs NSIS et MSI ; installation silencieuse, présence d'`aegisd.exe`, désinstallation |
+| `mql5` | **réussi — connecteur 1.20 et `AegisSelfTest` compilés par MetaEditor, 0 erreur** (première compilation de la 1.20) ; `.ex5` dans l'artifact `aegis-connector-mt5` |
+| `release` | ignoré (seulement pour une étiquette `v*`) |
+
+Conclusion globale affichée par GitHub : « cancelled », uniquement à cause du job macOS.
+Les étapes utilisent `bash` avec `pipefail` (shell par défaut de GitHub) : une erreur de
+`cargo test` sous `| tee` fait bien échouer l'étape. Les journaux détaillés et les fichiers
+produits sont des *artifacts* de l'exécution (téléchargement réservé à un compte connecté).
+**Toujours NON VÉRIFIÉ** : exécution de `AegisSelfTest` et du connecteur dans un terminal.

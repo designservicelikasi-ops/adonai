@@ -4,17 +4,17 @@ Cette liste est volontairement complète. Rien ici n'est caché ailleurs.
 
 ## Non vérifié (à faire avant toute utilisation avec un broker)
 
-1. **Connecteur MQL5 1.20 (protocole 1.2) : compilation à confirmer par la CI.** Le job CI
-   `mql5` (MetaEditor installé sur un runner Windows) a compilé le connecteur **1.10** et son
-   auto-test sans erreur le 2026-11-21. La version 1.20 (mode de marge, latence broker) n'a pas
-   encore été compilée au moment de cette rédaction : voir `TEST_REPORT.md` § 2 pour le
-   résultat observé. L'auto-test `AegisSelfTest` n'a jamais été **exécuté** (il faut un
-   terminal).
+1. **Connecteur MQL5 1.20 compilé, jamais exécuté.** Le job CI `mql5` (MetaEditor sur un
+   runner Windows) l'a compilé avec son auto-test, 0 erreur, le 2026-11-26
+   (`TEST_REPORT.md` § 6). L'auto-test `AegisSelfTest` et le connecteur n'ont jamais été
+   **exécutés** dans un terminal.
 2. **Aucun essai sur un vrai terminal MT5.** Tout le cycle a été validé contre le simulateur,
    qui n'est pas un broker. Latence et comportement réels du broker non mesurés.
-3. **Windows et Linux : vérifiés par la CI en 0.2 seulement.** Le 2026-11-21 (commit
-   `8a96ddb`), tests, moteurs et installateurs Windows et Linux ont été construits avec succès
-   sur des runners natifs. Pour la 0.3 : voir `TEST_REPORT.md` § 2.
+3. **Windows et Linux vérifiés par la CI seulement.** Le 2026-11-26 (commit `152609a`), tests,
+   moteurs, test de fumée et installateurs Windows et Linux (installation et désinstallation
+   automatiques comprises) ont réussi sur des runners natifs. Aucun essai sur une vraie
+   machine Windows ou Linux de l'utilisateur. Le test macOS de la CI est refusé par GitHub pour
+   ce compte (tests macOS faits localement).
 4. **Service Windows** (`windows-service`) et scripts PowerShell d'installation du service :
    jamais exécutés hors de la CI.
 5. **Fenêtre native du desktop** non photographiée ; les 25 pages ont été rendues dans Chrome

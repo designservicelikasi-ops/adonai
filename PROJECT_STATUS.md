@@ -8,7 +8,8 @@ Tests : `TEST_REPORT.md`. Limites : `KNOWN_LIMITATIONS.md` (31 points).
 ### En une phrase
 
 Les neuf phases de la directive sont réalisées et testées **sur macOS avec le simulateur**
-(306 tests, application 0.3.0 compilée) ; AEGIS **n'est pas encore prêt pour un compte réel** :
+(306 tests, application 0.3.0 compilée) et **par la CI sous Windows et Linux** (connecteur
+MQL5 1.20 compilé sans erreur) ; AEGIS **n'est pas encore prêt pour un compte réel** :
 le connecteur 1.20 n'a jamais tourné dans un vrai terminal MT5, et aucune stratégie ni aucun
 modèle n'a été évalué sur des données de marché réelles.
 
@@ -22,7 +23,7 @@ modèle n'a été évalué sur des données de marché réelles.
 | 6 Fast Learning | fait | `81c599a` |
 | 7 Multi-actifs, exposition corrélée | fait | `9c80b6d` |
 | 8 Desktop blanc et or (25 pages) | fait (contrôle visuel en mode aperçu) | `e09c50b` |
-| 9 Validation, Telegram, documentation, livraison | fait ; CI 0.3 : `TEST_REPORT.md` § 6 | ce commit |
+| 9 Validation, Telegram, documentation, livraison | fait ; CI 0.3 réussie (hors macOS refusé) | `152609a` |
 
 ### Ce qui est livré
 
@@ -51,8 +52,10 @@ modèle n'a été évalué sur des données de marché réelles.
   backtest, recherche de paramètres, audit de données, modèle de probabilité, autorisation
   DEMO, refus motivés des signaux.
 - Les 25 pages rendues avec les vraies réponses du moteur, sans erreur.
-- CI GitHub du 2026-11-21 (0.2 + cerveau) : Windows et Linux (tests, moteurs, installateurs)
-  et compilation MQL5 du connecteur 1.10 réussis. CI de la 0.3 : `TEST_REPORT.md` § 6.
+- **CI GitHub de la 0.3** (2026-11-26, commit `152609a`) : tests Windows et Linux, moteurs,
+  installateurs Windows (NSIS, MSI) et Linux (AppImage, .deb, .rpm) avec installation et
+  désinstallation, et **compilation MQL5 du connecteur 1.20 : 0 erreur** — tout réussi
+  (`TEST_REPORT.md` § 6). Seul le test macOS est refusé par GitHub pour ce compte.
 
 ### NON VÉRIFIÉ
 
@@ -68,8 +71,8 @@ modèle n'a été évalué sur des données de marché réelles.
 
 ### Prochaines étapes (dans cet ordre)
 
-1. Lire le résultat de la CI 0.3 (`TEST_REPORT.md` § 6) et corriger ce qu'elle révèle,
-   notamment la compilation MQL5 du connecteur 1.20.
+1. Décider du job macOS de la CI (refusé par GitHub pour ce compte) : le retirer, essayer
+   `macos-latest`, ou le laisser (l'exécution apparaît alors « cancelled »).
 2. Compte démo : `AegisSelfTest`, puis MONITOR, puis DEMO FULL AUTONOMY ; reporter les
    mesures dans `TEST_REPORT.md`.
 3. Collecter l'historique broker, entraîner, backtester, lancer la recherche de paramètres.
