@@ -16,3 +16,6 @@ research/out/
 # Release artifacts are produced by the build, not committed (only the index is).
 /RELEASES/*
 !/RELEASES/README.md
+
+# macOS metadata on non-HFS volumes
+._*
