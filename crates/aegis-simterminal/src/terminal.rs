@@ -72,6 +72,8 @@ pub enum SimControl {
     PauseTicks(bool),
     /// Re-send the last frame that was sent (replay attack / duplicate delivery).
     ReplayLastFrame,
+    /// Remove the stop-loss of every position (stop dropped by the broker or by hand in MT5).
+    StripStops,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -240,6 +242,10 @@ async fn run(cfg: SimTerminalConfig, mut control: mpsc::Receiver<SimControl>) ->
                 match cmd {
                     Some(SimControl::Fault(f)) => broker.fault = f,
                     Some(SimControl::PauseTicks(p)) => paused = p,
+                    Some(SimControl::StripStops) => {
+                        broker.strip_stops();
+                        send_state!();
+                    }
                     Some(SimControl::ReplayLastFrame) => {
                         if let Err(e) = write_frame(&mut wr, &last_frame).await {
                             return SimExit::Disconnected(e.to_string());
@@ -260,9 +266,15 @@ async fn run(cfg: SimTerminalConfig, mut control: mpsc::Receiver<SimControl>) ->
                 };
                 match env.body {
                     Body::Order { .. } => {
+                        let started = std::time::Instant::now();
                         let (outcome, deals) = broker.execute(&env.body, now_ms());
+                        let broker_us = started.elapsed().as_micros() as i64;
                         if let Some(out) = outcome {
-                            send!(out.to_body());
+                            let mut body = out.to_body();
+                            if let Body::Result { broker_us: b, .. } = &mut body {
+                                *b = broker_us.max(1);
+                            }
+                            send!(body);
                         }
                         for d in &deals {
                             send!(Body::from_deal(d));

@@ -119,14 +119,19 @@ Une seule violation **ferme la session**. Conséquences :
 | `hello` | `nonce`, `terminal`, `login`, `server`, `trade_mode`, `build` | Ouverture. |
 | `spec` | `symbol`, `digits`, `point`, `contract_size`, `tick_size`, `tick_value`, `volume_min`, `volume_max`, `volume_step`, `stops_level`, `swap_long`, `swap_short`, `trade_mode` (`full`, `closeonly`, `disabled`), `currency_profit` | Spécification broker d'un instrument. |
 | `tick` | `symbol`, `time`, `bid`, `ask` | Prix. |
-| `account` | `login`, `server`, `currency`, `balance`, `equity`, `margin`, `margin_free`, `leverage`, `trade_mode`, `trade_allowed` | État du compte, chaque seconde. |
+| `account` | `login`, `server`, `currency`, `balance`, `equity`, `margin`, `margin_free`, `leverage`, `trade_mode`, `trade_allowed`, `margin_mode` (1.2 : `hedging`, `netting`, `exchange`, `unknown`) | État du compte, chaque seconde. |
 | `pos` | `snap`, `ticket`, `symbol`, `side`, `volume`, `price_open`, `sl`, `tp`, `profit`, `swap`, `commission`, `magic`, `comment`, `open_time` | Une position ouverte, dans un instantané. |
 | `ord` | `snap`, `ticket`, `symbol`, `side`, `kind`, `volume`, `price`, `sl`, `tp`, `magic`, `comment`, `setup_time` | Un ordre en attente, dans un instantané. |
 | `snap_end` | `snap`, `positions`, `orders` | Fin d'un instantané, avec le nombre d'éléments envoyés. |
 | `deal` | `deal`, `position`, `symbol`, `side`, `volume`, `price`, `profit`, `swap`, `commission`, `time`, `comment`, `origin` | Clôture (totale ou partielle) constatée chez le broker. |
 | `balance_op` | `deal`, `amount`, `time` | Dépôt, retrait ou crédit. |
-| `result` | `cid`, `ok`, `retcode`, `ticket`, `price`, `volume`, `msg` | Réponse du broker à une instruction `order`. |
+| `result` | `cid`, `ok`, `retcode`, `ticket`, `price`, `volume`, `msg`, `broker_us` (1.2 : durée de `OrderSend` en µs, 0 si le broker n'a pas été appelé) | Réponse du broker à une instruction `order`. |
 | `bar` | `symbol`, `tf`, `time`, `open`, `high`, `low`, `close`, `volume`, `spread`, `last` | Bougie historique, en réponse à `history_req`. |
+
+**Niveaux de fonctionnalités.** L'enveloppe reste en version `v = 1`. Les champs ajoutés sont
+facultatifs : 1.1 (`spec.currency_base`, `spec.freeze_level`, `deal.fee`), 1.2
+(`account.margin_mode`, `result.broker_us`, connecteur 1.20). Un connecteur plus ancien reste
+accepté ; un mode de compte absent est traité comme *netting* (prudent).
 
 `side` vaut `buy` ou `sell`. `kind` vaut `market`, `limit` ou `stop`. `tf` vaut `M1`, `M5`,
 `M15`, `M30`, `H1`, `H4` ou `D1`. Les heures sont en millisecondes UTC.

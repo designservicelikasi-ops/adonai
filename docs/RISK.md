@@ -54,6 +54,13 @@ résultat brut attendu = p × gain brut − (1 − p) × perte brute
 | `niveaux_valides`, `niveaux_coherents`, `distance_stops`, `prix_ordre_attente` | stop ou cible absent, du mauvais côté, trop proche |
 | `taille_position`, `risque_par_transaction` | volume minimum impossible, risque au-dessus du budget |
 | `exposition`, `exposition_devise`, `marge_libre` | notionnel total ou par devise > limite, exposition incalculable, marge insuffisante |
+| `mode_marge` | compte **netting** (ou mode inconnu, connecteur < 1.2) : une position existe déjà sur l'instrument — l'ordre fusionnerait, réduirait ou inverserait au lieu de s'ajouter |
+| `couverture` | compte **hedging** : position opposée sur l'instrument alors que `allow_hedging = false` |
+| `jours_autorises` | jour UTC hors de `allowed_weekdays` |
+| `risque_portefeuille` | pertes aux stops ACTUELS de toutes les positions et ordres + la nouvelle > limite ; une position sans stop rend le risque non borné |
+| `budget_risque_journalier` | risque cumulé des entrées du jour > `daily_risk_budget_pct` |
+| `slippage_observe` | slippage médian des exécutions récentes de l'instrument > `max_observed_slippage_points` |
+| `reduction_apres_pertes` | (information) budget de risque réduit après une série de pertes |
 | `seuil_probabilite` | P(TP avant SL) absente ou sous le seuil BUY/SELL de l'utilisateur |
 | `esperance_nette` | espérance nette insuffisante ou non calculable |
 
@@ -63,6 +70,61 @@ autour d'une annonce forte ; en prudence, probabilité exigée = seuil + marge).
 
 La taille est calculée au risque (`risk_per_trade_pct`) puis éventuellement **réduite** par
 `max_lots_per_trade` ; elle n'est jamais augmentée.
+
+## Risk Guardian 2.0 (0.3)
+
+**Risque du portefeuille.** Somme, pour chaque position et ordre en attente, de la perte si
+son stop ACTUEL est touché (prix d'ouverture → stop, plus commission), plus le risque de la
+nouvelle transaction. Un stop déplacé au point mort compte 0. Une position **sans stop**
+(y compris ouverte hors d'AEGIS) rend le risque non borné : toute entrée est refusée tant
+qu'elle existe. Limite : `max_portfolio_risk_pct`, ou par défaut
+`max_open_positions x risk_per_trade_pct` (ce qui ne change rien pour des positions
+protégées normalement).
+
+**Série de pertes.** `loss_streak_risk_scale` multiplie le budget de risque après N pertes
+d'affilée ; chaque valeur est ≤ 1 (refus à la validation sinon) : AEGIS ne peut **jamais**
+augmenter la taille après une perte.
+
+**Mode du compte.** Depuis le protocole 1.2, le connecteur transmet `ACCOUNT_MARGIN_MODE`.
+- *Netting* : une seule position par instrument ; un ordre de même sens fusionne (la position
+  prend le nouveau stop), un ordre opposé réduit, clôture ou inverse. AEGIS refuse donc toute
+  entrée sur un instrument où une position existe.
+- *Hedging* : positions indépendantes ; une position opposée (couverture) n'est permise que si
+  `allow_hedging = true`, et elle est évaluée comme un nouveau risque complet (son propre stop,
+  sa taille, le risque du portefeuille).
+- *Inconnu* (connecteur 1.1) : traité comme netting.
+
+**Stop initial.** `[risk.stops] mode = "adaptive"` : stop **structurel** (derrière le dernier
+swing confirmé qui laisse la place minimale, plus un tampon en ATR et le spread), sinon stop de
+**volatilité** (`volatility_atr` x ATR), sinon celui de la stratégie ; toujours entre
+`min_atr` (et la distance broker, et `min_spreads` spreads) et `max_atr`. La taille est
+recalculée sur la distance : **un stop plus éloigné donne un volume plus petit pour le même
+risque monétaire** ; si même le volume minimum du broker dépasse le budget, la transaction est
+refusée. Un backtest mesuré avec les stops de la stratégie n'est **pas** utilisé comme
+probabilité pour un stop adapté : seul le modèle de scénario (qui prend SL et TP en entrée)
+peut en fournir une.
+
+Les six rôles de stop distingués : initial (stratégie), structurel, volatilité (choix
+initial) ; break-even et suiveur (Position Intelligence) ; protection d'urgence (garde).
+
+**Garde de protection.** Après chaque instantané du broker :
+- une position AEGIS sans stop au-delà de `missing_stop_grace_ms` est un incident. Politique
+  `restore` (défaut) : le stop prévu à la décision est réinstallé s'il est encore du bon côté du
+  prix et au-delà de la distance broker ; sinon, ou après deux refus du broker, la position est
+  clôturée. `close` : clôture directe. `alert` : alerte seulement. En MONITOR (ou sans
+  terminal), rien n'est envoyé : alerte seulement ;
+- une modification acceptée par le broker doit apparaître dans l'instantané suivant ; sinon,
+  incident « modification non constatée » et alerte.
+Tout est écrit au journal d'audit (`stop_restore`, `protective_close`, `protection_alert`).
+
+**CLOSE PARTIAL.** `position.partial_close_at_r` (0 = désactivé) : une fois par position,
+clôture de `partial_close_fraction` du volume, arrondie **vers le bas** au pas du broker,
+seulement si la partie clôturée ET le reste sont au moins le volume minimum et sur le pas.
+
+**Qualité d'exécution.** Le moteur sépare : temps interne (décision → envoi, mesuré par le
+moteur), temps broker (dans `OrderSend`, mesuré par le connecteur 1.2), réseau + terminal
+(aller-retour − temps broker), et le slippage de chaque exécution. La vitesse du moteur n'est
+jamais présentée comme la vitesse d'exécution du marché.
 
 ## Objectif quotidien et gestion des positions
 

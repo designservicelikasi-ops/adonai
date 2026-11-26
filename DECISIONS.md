@@ -199,3 +199,28 @@ comparaison la favorise, ce qui n'oblige que davantage la nouvelle. Meilleure : 
 inactive, alerte, boutons « Activer » / « Écarter » (page Cerveau IA). Ce qui est activé est
 exactement ce qui a été comparé.
 
+
+---
+
+# Décisions de la version 0.3 (directive « Master Upgrade », 2026-11-26)
+
+## D34 — Mode du compte : champ facultatif, inconnu = netting
+Le protocole garde `v = 1` ; `account.margin_mode` et `result.broker_us` sont facultatifs. Un
+connecteur ancien ne casse rien, mais son mode inconnu est traité comme le plus restrictif
+(netting) : mieux vaut refuser une seconde position que fusionner sans le savoir.
+
+## D35 — Risque du portefeuille aux stops actuels, défaut « automatique »
+La limite par défaut vaut `positions max x risque par transaction`, ce qui ne change rien aux
+configurations existantes pour des positions protégées ; la nouveauté est qu'une position
+**sans stop** (même ouverte à la main) bloque toute entrée : le risque n'est plus mesurable.
+
+## D36 — Stop adaptatif sans emprunter la preuve de la stratégie
+Un taux de réussite de backtest ne vaut que pour les stops avec lesquels il a été mesuré. Avec
+un stop adapté, seule une probabilité de scénario (fonction de SL et TP) est acceptée. Le
+mode par défaut reste « stratégie » pour ne pas bloquer silencieusement les configurations
+actuelles.
+
+## D37 — Garde de protection : réinstaller, sinon clôturer, jamais en MONITOR
+Une position sans stop est le pire état possible. Le stop réinstallé est celui **prévu à la
+décision** (jamais un autre inventé après coup) ; s'il est déjà dépassé, ou refusé deux fois,
+la position est clôturée. En MONITOR rien ne part (D7) : alerte seulement.

@@ -2,6 +2,20 @@ use crate::goal::DailyGoal;
 use crate::position::PositionPolicy;
 use serde::{Deserialize, Serialize};
 
+/// What the protection guard does when an AEGIS position has no stop-loss at the broker
+/// (stop rejected, removed by hand, or lost) after the grace period.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MissingStopPolicy {
+    /// Alert only (the user decides).
+    Alert,
+    /// Re-install the planned stop; close the position if that fails twice or the price is
+    /// already beyond it (default).
+    Restore,
+    /// Close the position at market.
+    Close,
+}
+
 /// What the emergency stop does to positions that are already open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,6 +84,33 @@ pub struct RiskConfig {
     pub expected_holding_nights: f64,
     pub kill_cancel_pending: bool,
     pub kill_position_policy: KillPositionPolicy,
+
+    // ---- Risk Guardian 2.0 (0.3). Every one of them can only refuse or reduce.
+    /// Sum of the money lost if every open position AND the new one hit their stops, in % of
+    /// equity. Measured at the CURRENT stops (a stop moved to break-even counts 0). A position
+    /// without a stop makes the portfolio risk unbounded: entries are refused.
+    /// 0 = automatic: `max_open_positions x risk_per_trade_pct`.
+    pub max_portfolio_risk_pct: f64,
+    /// Money at risk of all the entries SENT today, in % of day-start equity. 0 = off.
+    pub daily_risk_budget_pct: f64,
+    /// UTC weekdays on which entries are allowed ("mon".."sun"). Empty = every day.
+    pub allowed_weekdays: Vec<String>,
+    /// Risk multiplier by number of consecutive losses: element i applies after i losses
+    /// (the last one applies beyond). Each value must be within 0..1: it can only REDUCE the
+    /// size. Empty = no reduction. Example: [1.0, 1.0, 0.75, 0.5].
+    pub loss_streak_risk_scale: Vec<f64>,
+    /// Separate opposite positions on one symbol (hedging). Only possible on a hedging
+    /// account; never on netting. Off by default.
+    pub allow_hedging: bool,
+    /// Entries are refused while the median slippage of the recent fills on the instrument
+    /// exceeds this, in points (estimated liquidity). 0 = off.
+    pub max_observed_slippage_points: f64,
+    /// Reaction to an AEGIS position found without a stop-loss at the broker.
+    pub missing_stop_policy: MissingStopPolicy,
+    /// Time allowed for the broker to show the stop of a new position, in ms.
+    pub missing_stop_grace_ms: i64,
+    /// Choice of the initial stop (strategy / structural / volatility).
+    pub stops: crate::stops::StopPolicy,
 }
 
 impl Default for RiskConfig {
@@ -106,6 +147,15 @@ impl Default for RiskConfig {
             expected_holding_nights: 0.0,
             kill_cancel_pending: true,
             kill_position_policy: KillPositionPolicy::Keep,
+            max_portfolio_risk_pct: 0.0,
+            daily_risk_budget_pct: 0.0,
+            allowed_weekdays: Vec::new(),
+            loss_streak_risk_scale: Vec::new(),
+            allow_hedging: false,
+            max_observed_slippage_points: 0.0,
+            missing_stop_policy: MissingStopPolicy::Restore,
+            missing_stop_grace_ms: 5_000,
+            stops: Default::default(),
         }
     }
 }
@@ -180,8 +230,62 @@ impl RiskConfig {
         if !(500..=60_000).contains(&self.authorization_ttl_ms) {
             return Err(ConfigError { field: "authorization_ttl_ms", problem: "must be within 500..60000 ms" });
         }
+        self.stops.validate()?;
+        if !(1_000..=120_000).contains(&self.missing_stop_grace_ms) {
+            return Err(ConfigError { field: "missing_stop_grace_ms", problem: "must be within 1000..120000 ms" });
+        }
+        if self.max_portfolio_risk_pct != 0.0 {
+            range("max_portfolio_risk_pct", self.max_portfolio_risk_pct, 0.01, 50.0, "must be 0 (automatic) or within 0.01..50 %")?;
+        }
+        range("daily_risk_budget_pct", self.daily_risk_budget_pct, 0.0, 100.0, "must be within 0..100 % (0 = off)")?;
+        range("max_observed_slippage_points", self.max_observed_slippage_points, 0.0, 100_000.0, "must be >= 0")?;
+        for d in &self.allowed_weekdays {
+            if weekday_index(d).is_none() {
+                return Err(ConfigError { field: "allowed_weekdays", problem: "days are mon, tue, wed, thu, fri, sat, sun" });
+            }
+        }
+        if self.loss_streak_risk_scale.len() > 50 || self.loss_streak_risk_scale.iter().any(|v| !(v.is_finite() && *v > 0.0 && *v <= 1.0)) {
+            return Err(ConfigError { field: "loss_streak_risk_scale", problem: "at most 50 values, each within 0..1 (a reduction only)" });
+        }
         Ok(())
     }
+
+    /// Portfolio risk limit actually applied, in % of equity.
+    pub fn effective_portfolio_risk_pct(&self) -> f64 {
+        if self.max_portfolio_risk_pct > 0.0 {
+            self.max_portfolio_risk_pct
+        } else {
+            self.max_open_positions as f64 * self.risk_per_trade_pct
+        }
+    }
+
+    /// Size multiplier after `losses` consecutive losing trades (always within 0..1).
+    pub fn loss_streak_scale(&self, losses: u32) -> f64 {
+        match self.loss_streak_risk_scale.as_slice() {
+            [] => 1.0,
+            v => v[(losses as usize).min(v.len() - 1)].clamp(0.0, 1.0),
+        }
+    }
+
+    /// True when entries are allowed on the UTC weekday of `ts_ms`.
+    pub fn weekday_allowed(&self, ts_ms: aegis_types::TimestampMs) -> bool {
+        if self.allowed_weekdays.is_empty() {
+            return true;
+        }
+        let today = utc_weekday(ts_ms);
+        self.allowed_weekdays.iter().any(|d| weekday_index(d) == Some(today))
+    }
+}
+
+/// 0 = Monday .. 6 = Sunday.
+pub fn weekday_index(name: &str) -> Option<u32> {
+    ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].iter().position(|d| d.eq_ignore_ascii_case(name.trim())).map(|i| i as u32)
+}
+
+/// UTC weekday of a timestamp, 0 = Monday .. 6 = Sunday.
+pub fn utc_weekday(ts_ms: aegis_types::TimestampMs) -> u32 {
+    // 1970-01-01 was a Thursday (index 3).
+    ((ts_ms.div_euclid(86_400_000) + 3).rem_euclid(7)) as u32
 }
 
 /// A trading window in UTC. `end` before `start` wraps past midnight.
@@ -232,6 +336,25 @@ mod tests {
         }
         // A high-volume day (2 000 entries) is a valid configuration, not an error.
         RiskConfig { max_trades_per_day: 2_000, max_orders_per_minute: 120, ..Default::default() }.validate().unwrap();
+    }
+
+    #[test]
+    fn guardian_2_settings_only_reduce_and_validate() {
+        let c = RiskConfig::default();
+        assert_eq!(c.effective_portfolio_risk_pct(), 1.5, "automatic = positions x risk per trade");
+        assert_eq!(c.loss_streak_scale(7), 1.0);
+        let c = RiskConfig { loss_streak_risk_scale: vec![1.0, 1.0, 0.75, 0.5], ..Default::default() };
+        c.validate().unwrap();
+        assert_eq!((c.loss_streak_scale(0), c.loss_streak_scale(2), c.loss_streak_scale(9)), (1.0, 0.75, 0.5));
+        // A multiplier above 1 would increase the size after losses (martingale): refused.
+        assert!(RiskConfig { loss_streak_risk_scale: vec![1.0, 2.0], ..Default::default() }.validate().is_err());
+        assert!(RiskConfig { allowed_weekdays: vec!["lundi".into()], ..Default::default() }.validate().is_err());
+        assert!(RiskConfig { max_portfolio_risk_pct: 80.0, ..Default::default() }.validate().is_err());
+        // 2026-11-26 is a Thursday.
+        let thu = 1_795_651_200_000; // 2026-11-26 00:00 UTC
+        assert_eq!(utc_weekday(thu), 3);
+        let weekdays = RiskConfig { allowed_weekdays: vec!["mon".into(), "fri".into()], ..Default::default() };
+        assert!(!weekdays.weekday_allowed(thu) && weekdays.weekday_allowed(thu + 86_400_000));
     }
 
     #[test]

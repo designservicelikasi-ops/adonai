@@ -28,7 +28,13 @@ pub fn per_lot_loss(spec: &SymbolSpec, cfg: &RiskConfig, entry: f64, sl: f64) ->
 /// `max_lots_per_trade`, rounded down to the broker step. 0.0 = too small to trade.
 /// The risk engine applies exactly this sizing; a caller can only ask for less.
 pub fn size_volume(spec: &SymbolSpec, cfg: &RiskConfig, equity: f64, entry: f64, sl: f64) -> f64 {
-    let budget = equity * cfg.risk_per_trade_pct / 100.0;
+    size_volume_scaled(spec, cfg, equity, entry, sl, 1.0)
+}
+
+/// Same sizing with the budget multiplied by `scale` (clamped to 0..1: a reduction only,
+/// e.g. after a losing streak). A wider stop always gives a smaller volume for the same budget.
+pub fn size_volume_scaled(spec: &SymbolSpec, cfg: &RiskConfig, equity: f64, entry: f64, sl: f64, scale: f64) -> f64 {
+    let budget = equity * cfg.risk_per_trade_pct / 100.0 * scale.clamp(0.0, 1.0);
     let loss = per_lot_loss(spec, cfg, entry, sl);
     if !(loss > 0.0 && budget > 0.0) {
         return 0.0;
@@ -111,6 +117,8 @@ pub struct RiskContext<'a> {
     pub peak_equity: f64,
     /// LIVE AUTO was explicitly armed by the user for this account.
     pub live_armed: bool,
+    /// Median slippage of the recent fills on the proposal's symbol, in points (adverse > 0).
+    pub recent_slippage_points: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -399,6 +407,11 @@ impl RiskEngine {
             let inside = cfg.trading_windows.iter().any(|w| w.contains(minute));
             c.add("horaires", inside, format!("{:02}:{:02} UTC {} des plages autorisées", minute / 60, minute % 60, if inside { "dans" } else { "hors" }));
         }
+        if !cfg.allowed_weekdays.is_empty() {
+            let ok = cfg.weekday_allowed(ctx.now_ms);
+            let names = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+            c.add("jours_autorises", ok, format!("{} (UTC) {} des jours autorisés: {}", names[crate::config::utc_weekday(ctx.now_ms) as usize], if ok { "fait partie" } else { "ne fait pas partie" }, cfg.allowed_weekdays.join(", ")));
+        }
         let recent = self.sent.iter().filter(|t| ctx.now_ms - **t < 60_000).count();
         c.add("debit_ordres", recent < cfg.max_orders_per_minute as usize, format!("{recent} entrées sur la dernière minute (max {})", cfg.max_orders_per_minute));
 
@@ -407,6 +420,29 @@ impl RiskEngine {
         let on_symbol = ctx.positions.iter().filter(|x| x.symbol == p.symbol).count()
             + ctx.pending.iter().filter(|x| x.symbol == p.symbol).count();
         c.add("positions_par_instrument", on_symbol < cfg.max_positions_per_symbol, format!("{on_symbol} sur {} (max {})", p.symbol, cfg.max_positions_per_symbol));
+        if let Some(a) = account {
+            let mm = a.margin_mode;
+            let same: Vec<Side> = ctx.positions.iter().filter(|x| x.symbol == p.symbol).map(|x| x.side)
+                .chain(ctx.pending.iter().filter(|x| x.symbol == p.symbol).map(|x| x.side)).collect();
+            if mm.allows_hedging() {
+                if same.iter().any(|s| *s != p.side) {
+                    c.add("couverture", cfg.allow_hedging, if cfg.allow_hedging {
+                        format!("compte hedging: position opposée sur {} autorisée par la politique; risque cumulé contrôlé", p.symbol)
+                    } else {
+                        format!("position opposée sur {}: la couverture est désactivée (allow_hedging = false)", p.symbol)
+                    });
+                } else {
+                    c.add("mode_marge", true, "compte hedging: positions indépendantes");
+                }
+            } else {
+                let clash = !same.is_empty();
+                c.add("mode_marge", !clash, if clash {
+                    format!("compte {}: un ordre sur {} fusionnerait avec la position existante, la réduirait ou l'inverserait — refusé", mm.as_str(), p.symbol)
+                } else {
+                    format!("compte {}: aucune position sur {}", mm.as_str(), p.symbol)
+                });
+            }
+        }
 
         // ---- price levels, sizing, exposure, expectation
         if let (Some(a), Some(spec), Some(tick)) = (account, spec, tick) {
@@ -421,9 +457,14 @@ impl RiskEngine {
             let levels_ok = self.check_levels(&mut c, p, spec, tick, entry);
 
             if levels_ok {
-                out.risk_budget = a.equity * cfg.risk_per_trade_pct / 100.0;
+                let streak = ctx.day.map(|d| d.consecutive_losses).unwrap_or(0);
+                let scale = cfg.loss_streak_scale(streak);
+                if scale < 1.0 {
+                    c.add("reduction_apres_pertes", true, format!("{streak} perte(s) consécutive(s): budget de risque réduit à {:.0} %", scale * 100.0));
+                }
+                out.risk_budget = a.equity * cfg.risk_per_trade_pct / 100.0 * scale;
                 let per_lot_loss = per_lot_loss(spec, &cfg, entry, p.sl);
-                let mut volume = size_volume(spec, &cfg, a.equity, entry, p.sl);
+                let mut volume = size_volume_scaled(spec, &cfg, a.equity, entry, p.sl, scale);
                 if let Some(req) = p.requested_volume {
                     volume = volume.min(spec.normalize_volume(req));
                 }
@@ -449,6 +490,24 @@ impl RiskEngine {
                 }
 
                 if sized {
+                    self.check_portfolio_risk(&mut c, ctx, a, out.risk_amount);
+                    if cfg.daily_risk_budget_pct > 0.0 {
+                        if let Some(day) = ctx.day {
+                            let budget = day.start_equity * cfg.daily_risk_budget_pct / 100.0;
+                            let used = day.risk_sent + out.risk_amount;
+                            c.add("budget_risque_journalier", used <= budget + 1e-6, format!(
+                                "risque engagé aujourd'hui {:.2} + {:.2} = {used:.2} {} (budget {budget:.2})", day.risk_sent, out.risk_amount, a.currency
+                            ));
+                        }
+                    }
+                    if cfg.max_observed_slippage_points > 0.0 {
+                        match ctx.recent_slippage_points {
+                            Some(sl) => c.add("slippage_observe", sl <= cfg.max_observed_slippage_points, format!(
+                                "slippage médian récent {sl:.1} points (max {:.1})", cfg.max_observed_slippage_points
+                            )),
+                            None => c.add("slippage_observe", true, "aucune exécution récente mesurée sur cet instrument"),
+                        };
+                    }
                     self.check_exposure(&mut c, ctx, a, spec, entry, volume);
                     let micro = evaluate_micro_profit(
                         spec, &cfg, p.side, volume, entry, p.sl, p.tp, tick.spread(),
@@ -534,6 +593,39 @@ impl RiskEngine {
             ok &= c.add("prix_ordre_attente", pending_ok, if pending_ok { "prix d'ordre cohérent avec le marché" } else { "prix d'ordre en attente incohérent avec le marché" });
         }
         ok
+    }
+
+    /// Money lost if every open position, pending order and the new trade hit their stops.
+    fn check_portfolio_risk(&self, c: &mut Checks, ctx: &RiskContext<'_>, a: &AccountSnapshot, new_risk: f64) {
+        let cfg = &self.config;
+        let mut total = new_risk;
+        let mut unbounded = Vec::new();
+        let mut unknown = Vec::new();
+        let legs = ctx.positions.iter().map(|x| (x.ticket, &x.symbol, x.side, x.price_open, x.sl, x.volume))
+            .chain(ctx.pending.iter().map(|x| (x.ticket, &x.symbol, x.side, x.price, x.sl, x.volume)));
+        for (ticket, sym, side, open, sl, vol) in legs {
+            if !(sl > 0.0) {
+                unbounded.push(ticket.to_string());
+                continue;
+            }
+            match ctx.specs.get(sym) {
+                Some(s) => total += s.price_distance_value(((open - sl) * side.sign()).max(0.0), vol) + cfg.commission_per_lot_round_turn * vol,
+                None => unknown.push(sym.clone()),
+            }
+        }
+        let limit_pct = cfg.effective_portfolio_risk_pct();
+        if !unbounded.is_empty() {
+            c.add("risque_portefeuille", false, format!("position(s) sans stop-loss ({}): risque du portefeuille non borné", unbounded.join(", ")));
+            return;
+        }
+        if !unknown.is_empty() {
+            c.add("risque_portefeuille", false, format!("risque incalculable: spécification absente pour {}", unknown.join(", ")));
+            return;
+        }
+        let pct = if a.equity > 0.0 { total / a.equity * 100.0 } else { f64::INFINITY };
+        c.add("risque_portefeuille", pct <= limit_pct + 1e-9, format!(
+            "pertes aux stops de toutes les positions + celle-ci: {total:.2} {} = {pct:.2} % de l'équité (max {limit_pct:.2} %)", a.currency
+        ));
     }
 
     fn check_exposure(&self, c: &mut Checks, ctx: &RiskContext<'_>, a: &AccountSnapshot, spec: &SymbolSpec, entry: f64, volume: f64) {

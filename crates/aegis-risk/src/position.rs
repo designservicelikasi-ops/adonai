@@ -33,6 +33,17 @@ pub struct PositionPolicy {
     pub close_at_net: f64,
     /// Smallest stop/target move worth sending, in points.
     pub min_step_points: f64,
+    /// CLOSE PARTIAL once the favourable move reaches this multiple of R (once per position).
+    /// 0 = off. Both the closed part and the rest must respect the broker's volume rules.
+    #[serde(default)]
+    pub partial_close_at_r: f64,
+    /// Share of the volume closed by CLOSE PARTIAL (rounded DOWN to the volume step).
+    #[serde(default = "default_partial_fraction")]
+    pub partial_close_fraction: f64,
+}
+
+fn default_partial_fraction() -> f64 {
+    0.5
 }
 
 impl Default for PositionPolicy {
@@ -48,6 +59,8 @@ impl Default for PositionPolicy {
             max_bars_held: 0,
             close_at_net: 0.0,
             min_step_points: 3.0,
+            partial_close_at_r: 0.0,
+            partial_close_fraction: 0.5,
         }
     }
 }
@@ -69,6 +82,9 @@ impl PositionPolicy {
         }
         if !(self.close_at_net.is_finite() && self.close_at_net >= 0.0) {
             return bad("position.close_at_net", "must be >= 0");
+        }
+        if !(0.0..=20.0).contains(&self.partial_close_at_r) || !(0.05..=0.95).contains(&self.partial_close_fraction) {
+            return bad("position.partial_close_at_r", "partial_close_at_r within 0..20, partial_close_fraction within 0.05..0.95");
         }
         Ok(())
     }
@@ -96,6 +112,16 @@ pub struct ManagedPosition {
     pub cost_cover_price: f64,
     /// Net result if closed now, after estimated closing costs (account currency).
     pub net_realizable: f64,
+    /// Volume and broker volume rules (CLOSE PARTIAL).
+    #[serde(default)]
+    pub volume: f64,
+    #[serde(default)]
+    pub volume_min: f64,
+    #[serde(default)]
+    pub volume_step: f64,
+    /// A partial close was already done on this position.
+    #[serde(default)]
+    pub partial_done: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +131,8 @@ pub enum PositionActionKind {
     Secure,
     AdjustSl,
     AdjustTp,
+    /// Close part of the volume (`PositionAction::volume`).
+    ClosePartial,
     Close,
 }
 
@@ -115,6 +143,7 @@ impl PositionActionKind {
             PositionActionKind::Secure => "SECURE",
             PositionActionKind::AdjustSl => "ADJUST SL",
             PositionActionKind::AdjustTp => "ADJUST TP",
+            PositionActionKind::ClosePartial => "CLOSE PARTIAL",
             PositionActionKind::Close => "CLOSE",
         }
     }
@@ -127,6 +156,22 @@ pub struct PositionAction {
     pub sl: f64,
     pub tp: f64,
     pub reason: String,
+    /// Volume to close (CLOSE PARTIAL only).
+    #[serde(default)]
+    pub volume: Option<f64>,
+}
+
+/// Volume of a partial close: `fraction` of `volume` rounded DOWN to the step, such that both the
+/// closed part and the rest are at least the broker minimum. `None` when impossible.
+pub fn partial_volume(volume: f64, fraction: f64, volume_min: f64, volume_step: f64) -> Option<f64> {
+    if !(volume > 0.0 && volume_min > 0.0 && volume_step > 0.0 && fraction > 0.0 && fraction < 1.0) {
+        return None;
+    }
+    let part = ((volume * fraction + 1e-9) / volume_step).floor() * volume_step;
+    let part = aegis_types::round_to(part, 8);
+    let rest = aegis_types::round_to(volume - part, 8);
+    let aligned = |v: f64| ((v / volume_step) - (v / volume_step).round()).abs() < 1e-6;
+    (part + 1e-9 >= volume_min && rest + 1e-9 >= volume_min && aligned(rest)).then_some(part)
 }
 
 fn round(v: f64, digits: u32) -> f64 {
@@ -134,7 +179,7 @@ fn round(v: f64, digits: u32) -> f64 {
 }
 
 pub fn manage(p: &ManagedPosition, policy: &PositionPolicy) -> PositionAction {
-    let hold = |reason: String| PositionAction { kind: PositionActionKind::Hold, sl: p.sl, tp: p.tp, reason };
+    let hold = |reason: String| PositionAction { kind: PositionActionKind::Hold, sl: p.sl, tp: p.tp, reason, volume: None };
     if !policy.enabled {
         return hold("gestion automatique désactivée".into());
     }
@@ -143,7 +188,7 @@ pub fn manage(p: &ManagedPosition, policy: &PositionPolicy) -> PositionAction {
         return hold("données de prix invalides: aucune action".into());
     }
     if policy.max_bars_held > 0 && p.bars_held >= policy.max_bars_held {
-        return PositionAction { kind: PositionActionKind::Close, sl: p.sl, tp: p.tp, reason: format!("durée maximale atteinte ({} bougies)", p.bars_held) };
+        return PositionAction { kind: PositionActionKind::Close, sl: p.sl, tp: p.tp, reason: format!("durée maximale atteinte ({} bougies)", p.bars_held), volume: None };
     }
     if policy.close_at_net > 0.0 && p.net_realizable >= policy.close_at_net {
         return PositionAction {
@@ -151,6 +196,7 @@ pub fn manage(p: &ManagedPosition, policy: &PositionPolicy) -> PositionAction {
             sl: p.sl,
             tp: p.tp,
             reason: format!("résultat net réalisable {:.2} ≥ objectif de sortie {:.2}", p.net_realizable, policy.close_at_net),
+            volume: None,
         };
     }
 
@@ -207,7 +253,20 @@ pub fn manage(p: &ManagedPosition, policy: &PositionPolicy) -> PositionAction {
                 kind = PositionActionKind::Secure;
                 reason = format!("{reason} (sécurisation)");
             }
-            return PositionAction { kind, sl, tp: p.tp, reason };
+            return PositionAction { kind, sl, tp: p.tp, reason, volume: None };
+        }
+    }
+
+    // CLOSE PARTIAL: take part of the gain once, keep the rest running behind its stop.
+    if policy.partial_close_at_r > 0.0 && !p.partial_done && in_r >= policy.partial_close_at_r && p.net_realizable > 0.0 {
+        if let Some(v) = partial_volume(p.volume, policy.partial_close_fraction, p.volume_min, p.volume_step) {
+            return PositionAction {
+                kind: PositionActionKind::ClosePartial,
+                sl: p.sl,
+                tp: p.tp,
+                reason: format!("gain de {in_r:.2} R: clôture partielle de {v} lot(s) sur {}", p.volume),
+                volume: Some(v),
+            };
         }
     }
 
@@ -223,6 +282,7 @@ pub fn manage(p: &ManagedPosition, policy: &PositionPolicy) -> PositionAction {
                     sl: p.sl,
                     tp: target,
                     reason: format!("{} bougies sans atteindre la cible: TP rapproché à {target:.*}", p.bars_held, p.digits as usize),
+                    volume: None,
                 };
             }
         }
@@ -253,6 +313,10 @@ mod tests {
             freeze_level_points: 0.0,
             cost_cover_price: 0.00009,
             net_realizable: (bid - 1.10000) * 10_000.0,
+            volume: 0.10,
+            volume_min: 0.01,
+            volume_step: 0.01,
+            partial_done: false,
         }
     }
 
@@ -353,5 +417,27 @@ mod tests {
         assert_eq!(manage(&buy(1.10150), &PositionPolicy { enabled: false, ..Default::default() }).kind, PositionActionKind::Hold);
         assert!(PositionPolicy { trail_atr: 0.0, ..Default::default() }.validate().is_err());
         PositionPolicy::default().validate().unwrap();
+    }
+
+    #[test]
+    fn partial_close_respects_the_broker_volume_rules_and_happens_once() {
+        assert_eq!(partial_volume(0.10, 0.5, 0.01, 0.01), Some(0.05));
+        assert_eq!(partial_volume(0.03, 0.5, 0.01, 0.01), Some(0.01), "rounded down to the step");
+        assert_eq!(partial_volume(0.01, 0.5, 0.01, 0.01), None, "the minimum volume cannot be split");
+        assert_eq!(partial_volume(0.15, 0.5, 0.1, 0.1), None, "0.1 closed would leave 0.05 < minimum");
+        assert_eq!(partial_volume(0.30, 0.5, 0.1, 0.1), Some(0.1), "0.15 rounded down to 0.1, 0.2 left");
+        assert_eq!(partial_volume(0.25, 0.5, 0.1, 0.1), None, "a remainder off the volume step is refused");
+    }
+
+    #[test]
+    fn close_partial_once_at_the_configured_r() {
+        let policy = PositionPolicy { partial_close_at_r: 1.0, secure_at_r: 5.0, trail_from_r: 0.0, ..Default::default() };
+        let a = manage(&buy(1.10110), &policy);
+        assert_eq!(a.kind, PositionActionKind::ClosePartial, "{}", a.reason);
+        assert_eq!(a.volume, Some(0.05));
+        let done = ManagedPosition { partial_done: true, ..buy(1.10110) };
+        assert_ne!(manage(&done, &policy).kind, PositionActionKind::ClosePartial);
+        // Below the trigger: nothing.
+        assert_eq!(manage(&buy(1.10050), &policy).kind, PositionActionKind::Hold);
     }
 }

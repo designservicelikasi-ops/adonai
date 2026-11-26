@@ -103,6 +103,14 @@ pub(crate) struct Engine {
     pub shadow_dropped: std::sync::atomic::AtomicU64,
     pub shadow_saved_ms: TimestampMs,
     pub brain: crate::brain::BrainState,
+    pub protection: aegis_risk::ProtectionGuard,
+    /// Ticket -> stop planned at the decision (what the guard re-installs), persisted.
+    pub planned_sl: HashMap<i64, f64>,
+    pub latency: crate::latency::LatencyTracker,
+    /// Tickets on which CLOSE PARTIAL was already done (once per position), persisted.
+    pub partial_done: HashSet<i64>,
+    /// Modification cid -> (ticket, sl, tp, issued by the protection guard).
+    pub modify_requests: HashMap<String, (i64, f64, f64, bool)>,
     pub alerts: VecDeque<crate::ops::Alert>,
     pub heartbeat_ms: TimestampMs,
     pub last_auto_backup_ms: TimestampMs,
@@ -282,6 +290,8 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
     let owners: HashMap<i64, String> = store.ticket_strategies().await?.into_iter().collect();
     let accounting = store.kv_get::<Accounting>("accounting").await?;
     let initial_sl: HashMap<i64, f64> = store.kv_get("position_initial_sl").await?.unwrap_or_default();
+    let planned_sl: HashMap<i64, f64> = store.kv_get("position_planned_sl").await?.unwrap_or_default();
+    let partial_done: HashSet<i64> = store.kv_get("position_partial_done").await?.unwrap_or_default();
 
     let listener = TcpListener::bind(&cfg.bridge.listen).await.map_err(|e| anyhow::anyhow!("cannot listen on {}: {e}", cfg.bridge.listen))?;
     let bridge_addr = listener.local_addr()?;
@@ -326,6 +336,11 @@ pub async fn start(cfg: EngineConfig) -> anyhow::Result<EngineHandle> {
         shadow_dropped: std::sync::atomic::AtomicU64::new(0),
         shadow_saved_ms: now,
         brain: Default::default(),
+        protection: Default::default(),
+        planned_sl,
+        latency: Default::default(),
+        partial_done,
+        modify_requests: HashMap::new(),
         alerts: VecDeque::new(),
         heartbeat_ms: 0,
         last_auto_backup_ms: 0,
@@ -440,6 +455,7 @@ fn empty_view(cfg: &EngineConfig, now: TimestampMs) -> EngineView {
         shadow: None,
         shadow_dropped: 0,
         brain: Default::default(),
+        guardian: Default::default(),
         foreign_tickets: Vec::new(),
         pending: Vec::new(),
         deals: Vec::new(),
@@ -712,7 +728,8 @@ impl Engine {
                     self.log("info", "account", format!("opération de solde: {amount:+.2}"));
                 }
             }
-            Body::Result { cid, ok, retcode, ticket, price, volume, msg } => {
+            Body::Result { cid, ok, retcode, ticket, price, volume, msg, broker_us } => {
+                self.latency.on_result(&cid, ok, broker_us, now);
                 match self.executor.on_result(&cid, ok, retcode, ticket, price, volume, &msg).await {
                     Ok(ev) => self.on_exec_event(ev).await,
                     Err(e) => self.db_failed(&e.to_string()),
@@ -842,6 +859,7 @@ impl Engine {
         if self.kill_plan_pending && self.risk.kill_state().active {
             self.apply_kill_plan().await;
         }
+        self.guard_positions(now).await;
     }
 
     async fn on_deal(&mut self, d: Deal) {
@@ -911,6 +929,9 @@ impl Engine {
                     }
                     self.persist_accounting().await;
                 }
+                if let Some(s) = slippage_points {
+                    self.latency.on_fill_slippage(cid, *s);
+                }
                 self.journal_on_fill(cid, *ticket, *price, *volume, slip_cost).await;
                 self.bind_owner(cid, *ticket).await;
                 let slip = slippage_points.map(|s| format!(", glissement {s:+.1} pts")).unwrap_or_default();
@@ -944,10 +965,16 @@ impl Engine {
             }
             ExecEvent::CommandDone { cid, action, ticket } => {
                 self.modifying.remove(ticket);
+                if let Some((t, sl, tp, _)) = self.modify_requests.remove(cid) {
+                    self.protection.on_modification_accepted(t, sl, tp, now_ms());
+                }
                 self.log("info", "execution", format!("commande {action} {cid} exécutée (ticket {ticket})"));
             }
             ExecEvent::CommandFailed { cid, action, ticket, message } => {
                 self.modifying.remove(ticket);
+                if let Some((t, _, _, true)) = self.modify_requests.remove(cid) {
+                    self.protection.on_restore_failed(t);
+                }
                 self.log("warn", "execution", format!("commande {action} {cid} refusée (ticket {ticket}): {message}"));
             }
             ExecEvent::UnexpectedResult { cid } => {
@@ -1212,6 +1239,7 @@ impl Engine {
             shadow: self.shadow.as_ref().map(|s| (**s.report.borrow()).clone()),
             shadow_dropped: self.shadow_dropped.load(std::sync::atomic::Ordering::Relaxed),
             brain: self.brain_view(now),
+            guardian: self.guardian_view(),
             pending: self.pending.clone(),
             deals: self.deals.iter().rev().cloned().collect(),
             orders: self.cache.orders.clone(),

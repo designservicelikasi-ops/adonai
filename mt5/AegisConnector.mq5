@@ -10,7 +10,7 @@
 //| validate on a DEMO account before anything else.                  |
 //+------------------------------------------------------------------+
 #property copyright "AEGIS"
-#property version   "1.10"
+#property version   "1.20"
 #property strict
 #property description "AEGIS connector: authenticated bridge to the AEGIS risk engine."
 
@@ -62,6 +62,16 @@ void UpdateServerOffset()
   {
    long diff = (long)TimeTradeServer() - (long)TimeGMT();
    g_server_offset_ms = (long)MathRound((double)diff / 900.0) * 900 * 1000;
+  }
+
+//--- protocol 1.2: how the account holds positions (hedging accounts allow separate hedges)
+string MarginModeName()
+  {
+   long m = AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   if(m == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING) return "hedging";
+   if(m == ACCOUNT_MARGIN_MODE_RETAIL_NETTING) return "netting";
+   if(m == ACCOUNT_MARGIN_MODE_EXCHANGE)       return "exchange";
+   return "unknown";
   }
 
 string TradeModeName()
@@ -208,7 +218,7 @@ bool Connect()
    string hello = JStr("t", "hello") + "," + JStr("nonce", nonce) + "," + JStr("terminal", "mt5") + "," +
                   JInt("login", AccountInfoInteger(ACCOUNT_LOGIN)) + "," + JStr("server", AccountInfoString(ACCOUNT_SERVER)) + "," +
                   JStr("trade_mode", TradeModeName()) + "," +
-                  JStr("build", "AegisConnector 1.10 / MT5 build " + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
+                  JStr("build", "AegisConnector 1.20 / MT5 build " + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    if(!SendRaw(AegisSealFrame(g_psk, "hello-" + nonce, NowMs(), 0, "", hello)))
       return false;
 
@@ -294,7 +304,8 @@ void SendAccount()
             JStr("currency", AccountInfoString(ACCOUNT_CURRENCY)) + "," + JNum("balance", AccountInfoDouble(ACCOUNT_BALANCE), 2) + "," +
             JNum("equity", AccountInfoDouble(ACCOUNT_EQUITY), 2) + "," + JNum("margin", AccountInfoDouble(ACCOUNT_MARGIN), 2) + "," +
             JNum("margin_free", AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) + "," + JInt("leverage", AccountInfoInteger(ACCOUNT_LEVERAGE)) + "," +
-            JStr("trade_mode", TradeModeName()) + "," + JBool("trade_allowed", allowed));
+            JStr("trade_mode", TradeModeName()) + "," + JBool("trade_allowed", allowed) + "," +
+            JStr("margin_mode", MarginModeName()));
    g_last_account_ms = GetTickCount64();
   }
 
@@ -396,10 +407,12 @@ void SendHistory(const string symbol, const string tf, const int count)
 //+------------------------------------------------------------------+
 //| Instructions                                                     |
 //+------------------------------------------------------------------+
-void SendResult(const string cid, const bool ok, const long retcode, const long ticket, const double price, const double volume, const string msg)
+void SendResult(const string cid, const bool ok, const long retcode, const long ticket, const double price, const double volume, const string msg, const long broker_us = 0)
   {
+   //--- protocol 1.2: broker_us = time spent inside OrderSend (0 when the broker was not called)
    string body = JStr("t", "result") + "," + JStr("cid", cid) + "," + JBool("ok", ok) + "," + JInt("retcode", retcode) + "," +
-                 JInt("ticket", ticket) + "," + JNum("price", price) + "," + JNum("volume", volume) + "," + JStr("msg", StringSubstr(msg, 0, 200));
+                 JInt("ticket", ticket) + "," + JNum("price", price) + "," + JNum("volume", volume) + "," + JStr("msg", StringSubstr(msg, 0, 200)) + "," +
+                 JInt("broker_us", broker_us);
    //--- remember the answer so a duplicated instruction is answered, not executed again
    int n = ArraySize(g_done_cid);
    if(n >= 500)
@@ -611,7 +624,9 @@ void HandleOrder(const string json)
      }
 
    //--- send to the broker and report exactly what it answered
+   ulong t0 = GetMicrosecondCount();
    bool sent = OrderSend(req, res);
+   long broker_us = (long)(GetMicrosecondCount() - t0);
    bool ok = sent && (res.retcode == TRADE_RETCODE_DONE || res.retcode == TRADE_RETCODE_DONE_PARTIAL || res.retcode == TRADE_RETCODE_PLACED);
    long out_ticket = ticket;
    if(action == "open")
@@ -624,7 +639,7 @@ void HandleOrder(const string json)
    string msg = res.comment;
    if(!sent && msg == "")
       msg = "OrderSend failed, error " + IntegerToString(GetLastError());
-   SendResult(cid, ok, (long)res.retcode, out_ticket, res.price, res.volume, msg);
+   SendResult(cid, ok, (long)res.retcode, out_ticket, res.price, res.volume, msg, broker_us);
   }
 
 //+------------------------------------------------------------------+

@@ -6,7 +6,7 @@
 
 use aegis_protocol::{Body, OrderAction};
 use aegis_types::{
-    AccountSnapshot, AccountTradeMode, Deal, OrderKind, PendingOrder, Position, Side, SymbolSpec,
+    AccountMarginMode, AccountSnapshot, AccountTradeMode, Deal, OrderKind, PendingOrder, Position, Side, SymbolSpec,
     SymbolTradeMode, TimestampMs,
 };
 use std::collections::HashMap;
@@ -52,6 +52,9 @@ pub struct SimBrokerConfig {
     /// Adverse slippage applied to market fills, in points.
     pub slippage_points: f64,
     pub specs: Vec<SymbolSpec>,
+    /// Hedging (default, several positions per symbol) or netting (one position per symbol:
+    /// an opposite order reduces/closes/reverses it, a same-side order is merged into it).
+    pub margin_mode: AccountMarginMode,
 }
 
 pub const SIM_SYMBOL: &str = "EURUSD.sim";
@@ -87,6 +90,7 @@ impl Default for SimBrokerConfig {
             commission_per_lot_round_turn: 7.0,
             slippage_points: 0.0,
             specs: vec![sim_spec()],
+            margin_mode: AccountMarginMode::Hedging,
         }
     }
 }
@@ -113,6 +117,7 @@ impl Outcome {
             price: self.price,
             volume: self.volume,
             msg: self.msg.clone(),
+            broker_us: 0,
         }
     }
 }
@@ -128,6 +133,8 @@ pub struct SimBroker {
     pub fault: Fault,
     /// Number of `open` instructions that actually reached the "broker".
     pub executions: u64,
+    /// Closing deals produced by netting inside `open` (reported with the next `execute`).
+    netting_deals: Vec<Deal>,
 }
 
 impl SimBroker {
@@ -142,6 +149,7 @@ impl SimBroker {
             processed: HashMap::new(),
             fault: Fault::None,
             executions: 0,
+            netting_deals: Vec::new(),
         }
     }
 
@@ -152,6 +160,13 @@ impl SimBroker {
     fn ticket(&mut self) -> i64 {
         self.next_ticket += 1;
         self.next_ticket
+    }
+
+    /// Test control: remove every stop-loss (a stop dropped by the broker or by hand).
+    pub fn strip_stops(&mut self) {
+        for p in &mut self.positions {
+            p.sl = 0.0;
+        }
     }
 
     pub fn positions(&self) -> &[Position] {
@@ -196,6 +211,7 @@ impl SimBroker {
             leverage: self.cfg.leverage,
             trade_mode: self.cfg.trade_mode,
             trade_allowed: true,
+            margin_mode: self.cfg.margin_mode,
         }
     }
 
@@ -352,6 +368,7 @@ impl SimBroker {
                 },
             }
         };
+        deals.append(&mut self.netting_deals);
         self.refresh_profit();
         self.processed.insert(cid.clone(), outcome.clone());
         match fault {
@@ -410,6 +427,36 @@ impl SimBroker {
             Fault::Partial(ratio) => spec.normalize_volume(volume * ratio).max(spec.volume_min),
             _ => volume,
         };
+        let partial = filled + 1e-9 < volume;
+        let retcode = if partial { RET_DONE_PARTIAL } else { RET_DONE };
+        let msg = if partial { "partially filled" } else { "done" };
+        if self.cfg.margin_mode != AccountMarginMode::Hedging {
+            if let Some(i) = self.positions.iter().position(|p| p.symbol == symbol) {
+                // Netting: the order acts on the single position of the symbol.
+                let existing = self.positions[i].clone();
+                if existing.side == side {
+                    let total = aegis_types::round_to(existing.volume + filled, 8);
+                    let avg = spec.round_price((existing.price_open * existing.volume + fill * filled) / total);
+                    let p = &mut self.positions[i];
+                    p.volume = total;
+                    p.price_open = avg;
+                    p.sl = sl;
+                    p.tp = tp;
+                    return Outcome { cid: cid.into(), ok: true, retcode, ticket: existing.ticket, price: fill, volume: filled, msg: msg.into() };
+                }
+                let reduce = filled.min(existing.volume);
+                let deal = self.close_at(i, reduce, fill, now, "netting");
+                self.netting_deals.push(deal);
+                let rest = aegis_types::round_to(filled - reduce, 8);
+                if rest < spec.volume_min - 1e-9 {
+                    return Outcome { cid: cid.into(), ok: true, retcode, ticket: existing.ticket, price: fill, volume: filled, msg: format!("{msg} (netting: position reduced)") };
+                }
+                // Reversal: the remainder opens a position on the other side.
+                let ticket = self.ticket();
+                self.positions.push(Position { ticket, symbol: symbol.into(), side, volume: rest, price_open: fill, sl, tp, profit: 0.0, swap: 0.0, commission: 0.0, magic, comment: cid.into(), open_ts: now });
+                return Outcome { cid: cid.into(), ok: true, retcode, ticket, price: fill, volume: filled, msg: format!("{msg} (netting: position reversed)") };
+            }
+        }
         let ticket = self.ticket();
         self.positions.push(Position {
             ticket,
@@ -426,16 +473,7 @@ impl SimBroker {
             comment: cid.into(),
             open_ts: now,
         });
-        let partial = filled + 1e-9 < volume;
-        Outcome {
-            cid: cid.into(),
-            ok: true,
-            retcode: if partial { RET_DONE_PARTIAL } else { RET_DONE },
-            ticket,
-            price: fill,
-            volume: filled,
-            msg: if partial { "partially filled".into() } else { "done".into() },
-        }
+        Outcome { cid: cid.into(), ok: true, retcode, ticket, price: fill, volume: filled, msg: msg.into() }
     }
 }
 
@@ -531,6 +569,36 @@ mod tests {
         assert_eq!(out.unwrap().retcode, RET_INVALID_STOPS);
         assert!(b.positions().is_empty());
         assert_eq!(b.executions, 0);
+    }
+
+    #[test]
+    fn netting_account_merges_reduces_and_reverses() {
+        let mut b = SimBroker::new(SimBrokerConfig { margin_mode: AccountMarginMode::Netting, ..Default::default() });
+        b.on_price(SIM_SYMBOL, 1.10000, 1.10010, NOW);
+        let open = |cid: &str, side: Side, vol: f64, price: f64, sl: f64, tp: f64| Body::Order {
+            cid: cid.into(), auth_id: "a".into(), action: OrderAction::Open, symbol: SIM_SYMBOL.into(), side, kind: OrderKind::Market,
+            volume: vol, price, sl, tp, deviation: 10.0, ticket: 0, expires: NOW + 1_000, magic: 7,
+        };
+        let (o, d) = b.execute(&open("n1", Side::Buy, 0.10, 1.10010, 1.09800, 1.10300), NOW);
+        assert!(o.unwrap().ok && d.is_empty());
+        // Same side: merged into the single position, which takes the new SL/TP.
+        let (o, _) = b.execute(&open("n2", Side::Buy, 0.10, 1.10010, 1.09900, 1.10200), NOW);
+        assert!(o.unwrap().ok);
+        assert_eq!(b.positions().len(), 1);
+        assert!((b.positions()[0].volume - 0.20).abs() < 1e-9 && b.positions()[0].sl == 1.09900);
+        // Opposite side smaller: the position is reduced, a closing deal is produced, no hedge.
+        let (o, d) = b.execute(&open("n3", Side::Sell, 0.05, 1.10000, 1.10200, 1.09800), NOW);
+        assert!(o.unwrap().msg.contains("reduced"));
+        assert_eq!(d.len(), 1);
+        assert_eq!(b.positions().len(), 1);
+        assert!((b.positions()[0].volume - 0.15).abs() < 1e-9 && b.positions()[0].side == Side::Buy);
+        // Opposite side larger: closed and reversed.
+        let (o, d) = b.execute(&open("n4", Side::Sell, 0.25, 1.10000, 1.10200, 1.09800), NOW);
+        assert!(o.unwrap().msg.contains("reversed"));
+        assert_eq!(d.len(), 1);
+        assert_eq!(b.positions().len(), 1);
+        assert!(b.positions()[0].side == Side::Sell && (b.positions()[0].volume - 0.10).abs() < 1e-9);
+        assert_eq!(b.account(NOW).margin_mode, AccountMarginMode::Netting);
     }
 
     #[test]

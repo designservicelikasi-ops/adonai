@@ -22,7 +22,9 @@ Cette liste est volontairement complète. Rien ici n'est caché ailleurs.
 
 7. **Liaison MT5 non chiffrée** (authentifiée, anti-rejeu) : boucle locale ou tunnel.
 8. **Un terminal, un compte à la fois.**
-9. **Comptes « hedging » visés** ; « netting » repose sur un repli non testé.
+9. **Comptes netting** : depuis 0.3 le mode est transmis (protocole 1.2) et AEGIS n'empile ni
+   ne compense jamais de position sur un compte netting ; testé contre le simulateur en mode
+   netting, **pas contre un vrai compte netting**. Le connecteur 1.20 n'a pas été compilé.
 10. **Commission non fournie par MT5** : à saisir (une valeur fausse fausse les coûts).
 11. **Swaps** convertis seulement s'ils sont en points ou en devise du compte.
 12. **En MONITOR, aucune clôture** ne part (même manuelle).
@@ -54,6 +56,12 @@ Cette liste est volontairement complète. Rien ici n'est caché ailleurs.
     proches que celle de la stratégie. Ses leçons ne distinguent pas deux comptes démo
     différents d'un même type de terminal. La comparaison des versions porte sur la justesse
     des probabilités (Brier), pas directement sur le profit.
+
+27. **Latence broker** : mesurée par le connecteur 1.20 autour de `OrderSend` ; non vérifiée
+    sur un vrai terminal (le simulateur mesure son propre traitement).
+28. **Stop adaptatif** : sans modèle de scénario entraîné, un stop adapté n'a aucune
+    probabilité validée et la transaction est refusée (voulu) ; le mode par défaut reste
+    « stratégie ».
 
 ## Ce qu'AEGIS ne fait pas, par principe
 

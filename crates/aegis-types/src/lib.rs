@@ -342,6 +342,40 @@ impl AccountTradeMode {
     }
 }
 
+/// How the account holds positions (MT5 `ACCOUNT_MARGIN_MODE`).
+///
+/// On a **netting** account there is at most one position per symbol: an opposite order
+/// reduces, closes or reverses it instead of opening a separate hedge, and a same-side
+/// order is merged into it (the merged position takes the new order's SL/TP).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountMarginMode {
+    /// Several independent positions per symbol, both sides allowed.
+    Hedging,
+    /// One position per symbol (retail netting).
+    Netting,
+    /// Exchange netting (one position per symbol, exchange rules).
+    Exchange,
+    /// Not reported (connector older than protocol 1.2). Treated like netting.
+    #[default]
+    Unknown,
+}
+
+impl AccountMarginMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AccountMarginMode::Hedging => "hedging",
+            AccountMarginMode::Netting => "netting",
+            AccountMarginMode::Exchange => "exchange",
+            AccountMarginMode::Unknown => "unknown",
+        }
+    }
+    /// True when several positions can coexist on one symbol (separate hedges possible).
+    pub fn allows_hedging(self) -> bool {
+        self == AccountMarginMode::Hedging
+    }
+}
+
 /// What is on the other side of the bridge. A simulator is never presented as a broker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -363,6 +397,9 @@ pub struct AccountSnapshot {
     pub leverage: i64,
     pub trade_mode: AccountTradeMode,
     pub trade_allowed: bool,
+    /// Added in 0.3 (protocol 1.2). `Unknown` for older connectors.
+    #[serde(default)]
+    pub margin_mode: AccountMarginMode,
 }
 
 impl AccountSnapshot {

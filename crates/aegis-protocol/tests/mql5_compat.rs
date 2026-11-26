@@ -48,13 +48,13 @@ fn every_connector_message_is_accepted_by_the_engine() {
         ("spec", r#""t":"spec","symbol":"EURUSD","digits":5,"point":0.0000100000,"contract_size":100000.00000000,"tick_size":0.0000100000,"tick_value":1.0000000000,"volume_min":0.01000000,"volume_max":100.00000000,"volume_step":0.01000000,"stops_level":10.0,"swap_long":-6.50000000,"swap_short":1.20000000,"trade_mode":"full","currency_profit":"USD","currency_base":"EUR","freeze_level":5.0"#),
         // A connector of protocol 1.0 (no currency_base / freeze_level / fee) is still accepted.
         ("spec", r#""t":"spec","symbol":"GBPUSD","digits":5,"point":0.0000100000,"contract_size":100000.00000000,"tick_size":0.0000100000,"tick_value":1.0000000000,"volume_min":0.01000000,"volume_max":100.00000000,"volume_step":0.01000000,"stops_level":10.0,"swap_long":-6.50000000,"swap_short":1.20000000,"trade_mode":"full","currency_profit":"USD""#),
-        ("account", r#""t":"account","login":5001234,"server":"Broker-Demo","currency":"USD","balance":10000.00,"equity":10012.50,"margin":110.00,"margin_free":9902.50,"leverage":100,"trade_mode":"demo","trade_allowed":true"#),
+        ("account", r#""t":"account","login":5001234,"server":"Broker-Demo","currency":"USD","balance":10000.00,"equity":10012.50,"margin":110.00,"margin_free":9902.50,"leverage":100,"trade_mode":"demo","trade_allowed":true,"margin_mode":"netting""#),
         ("pos", r#""t":"pos","snap":3,"ticket":123456789,"symbol":"EURUSD","side":"buy","volume":0.23000000,"price_open":1.10012000,"sl":1.09810000,"tp":1.10410000,"profit":-2.30,"swap":0.00,"commission":0.00,"magic":20260115,"comment":"A0123456789abcdef","open_time":1799999990000"#),
         ("ord", r#""t":"ord","snap":3,"ticket":123456790,"symbol":"EURUSD","side":"sell","kind":"limit","volume":0.10000000,"price":1.10500000,"sl":1.10700000,"tp":1.10100000,"magic":20260115,"comment":"A0123456789abcdee","setup_time":1799999980000"#),
         ("snap_end", r#""t":"snap_end","snap":3,"positions":1,"orders":1"#),
         ("tick", r#""t":"tick","symbol":"EURUSD","time":1799999999500,"bid":1.10000,"ask":1.10010"#),
         ("bar", r#""t":"bar","symbol":"EURUSD","tf":"M15","time":1799999100000,"open":1.10000,"high":1.10050,"low":1.09980,"close":1.10020,"volume":345,"spread":9.0,"last":false"#),
-        ("result", r#""t":"result","cid":"A0123456789abcdef","ok":true,"retcode":10009,"ticket":123456789,"price":1.10012000,"volume":0.23000000,"msg":"Request executed""#),
+        ("result", r#""t":"result","cid":"A0123456789abcdef","ok":true,"retcode":10009,"ticket":123456789,"price":1.10012000,"volume":0.23000000,"msg":"Request executed","broker_us":48211"#),
         ("deal", r#""t":"deal","deal":987654321,"position":123456789,"symbol":"EURUSD","side":"buy","volume":0.23000000,"price":1.10410000,"profit":91.54,"swap":0.00,"commission":-1.61,"time":1799999999900,"comment":"[tp 1.10410]","origin":"A0123456789abcdef","fee":-0.05"#),
         ("balance_op", r#""t":"balance_op","deal":987654322,"amount":500.00,"time":1799999999950"#),
         ("heartbeat", r#""t":"heartbeat""#),
@@ -74,6 +74,27 @@ fn every_connector_message_is_accepted_by_the_engine() {
     assert_eq!((spec.digits, spec.point, spec.tick_value, spec.swap_long), (5, 0.00001, 1.0, -6.5));
     assert_eq!(spec.trade_mode, SymbolTradeMode::Full);
     assert_eq!((spec.currency_base.as_str(), spec.freeze_level_points), ("EUR", 5.0), "protocol 1.1 fields");
+}
+
+#[test]
+fn protocol_1_2_fields_and_older_connectors() {
+    let key = derive_session_key(PSK, "client-nonce-0001", "server-nonce-0001");
+    let open = |seq: u64, fields: &str| {
+        let mut s = Session::new("sid-12".into(), key.clone(), 30_000);
+        for i in 1..seq {
+            s.open(&mql5_frame(&key, i, "sid-12", r#""t":"heartbeat""#), NOW).unwrap();
+        }
+        s.open(&mql5_frame(&key, seq, "sid-12", fields), NOW).unwrap().body
+    };
+    let a12 = open(1, r#""t":"account","login":7,"server":"S","currency":"USD","balance":1.00,"equity":1.00,"margin":0.00,"margin_free":1.00,"leverage":100,"trade_mode":"demo","trade_allowed":true,"margin_mode":"hedging""#);
+    assert_eq!(a12.to_account(NOW).unwrap().margin_mode, aegis_types::AccountMarginMode::Hedging);
+    // A 1.1 connector does not send the margin mode: it is unknown (treated like netting).
+    let a11 = open(1, r#""t":"account","login":7,"server":"S","currency":"USD","balance":1.00,"equity":1.00,"margin":0.00,"margin_free":1.00,"leverage":100,"trade_mode":"demo","trade_allowed":true"#);
+    assert_eq!(a11.to_account(NOW).unwrap().margin_mode, aegis_types::AccountMarginMode::Unknown);
+    let r = open(2, r#""t":"result","cid":"c","ok":true,"retcode":10009,"ticket":1,"price":1.1,"volume":0.1,"msg":"done","broker_us":48211"#);
+    assert!(matches!(r, Body::Result { broker_us: 48211, .. }));
+    let r11 = open(1, r#""t":"result","cid":"c","ok":true,"retcode":10009,"ticket":1,"price":1.1,"volume":0.1,"msg":"done""#);
+    assert!(matches!(r11, Body::Result { broker_us: 0, .. }));
 }
 
 #[test]

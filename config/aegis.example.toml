@@ -59,6 +59,26 @@ conversion_fee_pct = 0.0
 expected_holding_nights = 0.0
 kill_cancel_pending = true       # arrêt d'urgence : annuler les ordres en attente d'AEGIS
 kill_position_policy = "keep"    # "keep" = conserver les positions avec leurs SL/TP ; "close" = les clôturer
+# --- Risk Guardian 2.0 (0.3) : chaque réglage ne peut que REFUSER ou RÉDUIRE.
+max_portfolio_risk_pct = 0.0     # pertes aux stops de toutes les positions + la nouvelle, en % ; 0 = positions max x risque par transaction
+daily_risk_budget_pct = 0.0      # risque cumulé des entrées envoyées dans la journée, en % ; 0 = désactivé
+allowed_weekdays = []            # jours UTC autorisés, ex. ["mon", "tue", "wed", "thu", "fri"] ; vide = tous
+loss_streak_risk_scale = []      # multiplicateur de taille après N pertes d'affilée, ex. [1.0, 1.0, 0.75, 0.5] ; chaque valeur <= 1
+allow_hedging = false            # positions opposées sur un même instrument : seulement sur un compte HEDGING
+max_observed_slippage_points = 0.0  # refus si le slippage médian récent dépasse cette valeur ; 0 = désactivé
+missing_stop_policy = "restore"  # position AEGIS sans SL chez le broker : "restore" | "close" | "alert"
+missing_stop_grace_ms = 5000     # délai laissé au broker pour montrer le stop
+
+[risk.stops]                     # Choix du stop initial (le volume est toujours recalculé sur la distance)
+mode = "strategy"                # "strategy" (stop de la stratégie) | "adaptive" (structurel, sinon volatilité)
+volatility_atr = 1.5
+swing_strength = 3
+swing_lookback = 60
+structure_buffer_atr = 0.2
+min_atr = 0.5
+max_atr = 4.0
+min_spreads = 3.0
+keep_reward_ratio = true
 
 [risk.daily_goal]                # Objectif de gain — un objectif, jamais une promesse
 enabled = true

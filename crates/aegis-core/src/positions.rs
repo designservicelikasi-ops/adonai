@@ -30,7 +30,13 @@ impl Engine {
         let before = self.initial_sl.len();
         let open: Vec<i64> = self.positions.iter().map(|p| p.ticket).collect();
         self.initial_sl.retain(|t, _| open.contains(t));
+        let planned = self.planned_sl.len();
+        self.planned_sl.retain(|t, _| open.contains(t));
+        if self.planned_sl.len() != planned {
+            let _ = self.store.kv_set("position_planned_sl", &self.planned_sl).await;
+        }
         self.modifying.retain(|t, _| open.contains(t));
+        self.partial_done.retain(|t| open.contains(t));
         if self.initial_sl.len() != before {
             let _ = self.store.kv_set("position_initial_sl", &self.initial_sl).await;
         }
@@ -73,6 +79,10 @@ impl Engine {
                 freeze_level_points: spec.freeze_level_points,
                 cost_cover_price: if per_price > 0.0 { cost_money / per_price } else { f64::INFINITY },
                 net_realizable,
+                volume: p.volume,
+                volume_min: spec.volume_min,
+                volume_step: spec.volume_step,
+                partial_done: self.partial_done.contains(&p.ticket),
             };
             let action = manage_position(&mp, &policy);
             let mut executed = false;
@@ -85,6 +95,13 @@ impl Engine {
                 } else {
                     let r = if action.kind == PositionActionKind::Close {
                         self.close_position(&p, None, &format!("{}: {}", action.kind.label(), action.reason)).await
+                    } else if action.kind == PositionActionKind::ClosePartial {
+                        let r = self.close_position(&p, action.volume, &format!("{}: {}", action.kind.label(), action.reason)).await;
+                        if r.is_ok() {
+                            self.partial_done.insert(p.ticket);
+                            let _ = self.store.kv_set("position_partial_done", &self.partial_done).await;
+                        }
+                        r
                     } else {
                         match self.executor.submit_modify(&p, action.sl, action.tp, &action.reason, now).await {
                             Ok(body) => self.dispatch_command(body, &format!("{} position {}", action.kind.label(), p.ticket), &action.reason).await,

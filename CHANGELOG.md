@@ -1,5 +1,27 @@
 # Historique des versions
 
+## 0.3.0 — en cours (directive « Master Upgrade », 2026-11-26)
+
+### Phase 2 — Risk Guardian 2.0 et exécution
+
+- **Mode du compte** (hedging / netting / exchange) transmis par le connecteur (protocole 1.2,
+  connecteur 1.20) ; un connecteur 1.1 reste accepté (mode inconnu = traité comme netting).
+  Contrôles `mode_marge` (netting : jamais d'empilement ni de compensation) et `couverture`
+  (hedging : position opposée seulement si `allow_hedging`). Simulateur : mode netting
+  (fusion, réduction, inversion).
+- **Risque du portefeuille** (`risque_portefeuille`) mesuré aux stops actuels ; une position
+  sans stop bloque les entrées. **Budget de risque journalier**, **jours autorisés**,
+  **réduction après une série de pertes** (multiplicateurs ≤ 1 uniquement), **slippage
+  observé**.
+- **Stop initial adaptatif** (`[risk.stops]`, `mode = "adaptive"`) : structurel, volatilité ou
+  stratégie, dans des bornes ; volume recalculé ; la preuve de backtest n'est pas réutilisée
+  pour un stop différent.
+- **Garde de protection** : SL manquant détecté et réinstallé (ou position clôturée selon la
+  politique), modifications vérifiées dans l'instantané suivant, incidents et audit.
+- **CLOSE PARTIAL** (Position Intelligence) avec respect du volume minimum et du pas.
+- **Qualité d'exécution** : temps interne, broker (`result.broker_us`), réseau ; slippage par
+  instrument. Section `guardian` de l'état publié.
+
 ## Non publiée — branche `cerveau-micro-profits` (2026-11-21)
 
 ### Ajouté

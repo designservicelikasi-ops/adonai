@@ -1,5 +1,5 @@
 use aegis_types::{
-    AccountSnapshot, AccountTradeMode, Candle, Deal, OrderKind, PendingOrder, Position, Side,
+    AccountMarginMode, AccountSnapshot, AccountTradeMode, Candle, Deal, OrderKind, PendingOrder, Position, Side,
     SymbolSpec, SymbolTradeMode, TerminalKind, Timeframe, TimestampMs,
 };
 use serde::{Deserialize, Serialize};
@@ -53,6 +53,9 @@ pub enum Body {
     Account {
         login: i64, server: String, currency: String, balance: f64, equity: f64, margin: f64,
         margin_free: f64, leverage: i64, trade_mode: AccountTradeMode, trade_allowed: bool,
+        /// Added in protocol 1.2 (`ACCOUNT_MARGIN_MODE`); absent from older connectors.
+        #[serde(default)]
+        margin_mode: AccountMarginMode,
     },
     Pos {
         snap: i64, ticket: i64, symbol: String, side: Side, volume: f64, price_open: f64, sl: f64, tp: f64,
@@ -75,7 +78,13 @@ pub enum Body {
     },
     BalanceOp { deal: i64, amount: f64, time: TimestampMs },
     /// Outcome of an `order` instruction, as reported by the broker.
-    Result { cid: String, ok: bool, retcode: i64, ticket: i64, price: f64, volume: f64, msg: String },
+    Result {
+        cid: String, ok: bool, retcode: i64, ticket: i64, price: f64, volume: f64, msg: String,
+        /// Added in protocol 1.2: time spent inside `OrderSend` (broker answer), in µs, measured
+        /// by the connector. 0 = not reported. Lets the engine separate network from broker time.
+        #[serde(default)]
+        broker_us: i64,
+    },
     Bar {
         symbol: String, tf: String, time: TimestampMs, open: f64, high: f64, low: f64, close: f64,
         volume: i64, spread: f64, last: bool,
@@ -298,7 +307,7 @@ impl Body {
     /// `received_ms` is the engine's receive time: freshness is judged on the engine clock.
     pub fn to_account(&self, received_ms: TimestampMs) -> Option<AccountSnapshot> {
         match self {
-            Body::Account { login, server, currency, balance, equity, margin, margin_free, leverage, trade_mode, trade_allowed } => Some(AccountSnapshot {
+            Body::Account { login, server, currency, balance, equity, margin, margin_free, leverage, trade_mode, trade_allowed, margin_mode } => Some(AccountSnapshot {
                 ts_ms: received_ms,
                 login: *login,
                 server: server.clone(),
@@ -310,6 +319,7 @@ impl Body {
                 leverage: *leverage,
                 trade_mode: *trade_mode,
                 trade_allowed: *trade_allowed,
+                margin_mode: *margin_mode,
             }),
             _ => None,
         }
@@ -327,6 +337,7 @@ impl Body {
             leverage: a.leverage,
             trade_mode: a.trade_mode,
             trade_allowed: a.trade_allowed,
+            margin_mode: a.margin_mode,
         }
     }
 

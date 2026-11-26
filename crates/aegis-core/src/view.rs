@@ -305,6 +305,9 @@ pub struct EngineView {
     pub shadow_dropped: u64,
     /// Micro-profit brain: targets chosen, lessons learned, versions proposed.
     pub brain: BrainView,
+    /// Risk Guardian 2.0: protection of open positions and execution quality (0.3).
+    #[serde(default)]
+    pub guardian: GuardianView,
     /// Tickets of positions AEGIS did not open.
     pub foreign_tickets: Vec<i64>,
     pub pending: Vec<PendingOrder>,
@@ -407,4 +410,24 @@ impl EngineView {
     pub fn is_simulator(&self) -> bool {
         self.connection.as_ref().is_some_and(|c| c.terminal == TerminalKind::Simulator)
     }
+}
+
+/// Protection of open positions and execution quality.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GuardianView {
+    pub account_margin_mode: String,
+    /// AEGIS positions currently without a stop-loss at the broker.
+    pub unprotected_tickets: Vec<i64>,
+    pub incidents: Vec<aegis_risk::ProtectionIncident>,
+    pub verified_modifications: u64,
+    pub unverified_modifications: u64,
+    pub pending_verifications: usize,
+    /// Risk at the stops of all open positions, in account currency and % of equity.
+    pub portfolio_risk: Option<f64>,
+    pub portfolio_risk_pct: Option<f64>,
+    pub portfolio_risk_limit_pct: f64,
+    pub daily_risk_sent: Option<f64>,
+    pub daily_risk_budget: Option<f64>,
+    pub loss_streak_scale: f64,
+    pub execution: crate::latency::ExecutionQuality,
 }

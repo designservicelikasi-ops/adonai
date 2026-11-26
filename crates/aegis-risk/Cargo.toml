@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 aegis-types.workspace = true
+aegis-market.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 hmac.workspace = true

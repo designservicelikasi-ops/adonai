@@ -87,6 +87,7 @@ impl Engine {
     }
 
     async fn handle_entry(&mut self, idx: usize, symbol: &str, tf: Timeframe, bar_ts: TimestampMs, intent: SignalIntent) {
+        let started = std::time::Instant::now();
         let now = now_ms();
         let decision_id = new_id("dec");
         let (strategy_id, stage, regimes_ok, regime) = {
@@ -98,6 +99,23 @@ impl Engine {
         let spec = self.specs.get(symbol).cloned();
         let last = self.market.last_tick(symbol);
         let sign = intent.side.sign();
+
+        // ---- initial stop: strategy / structural / volatility (the risk engine re-sizes the volume).
+        let mut intent = intent;
+        let stop_plan = match (&spec, &last) {
+            (Some(s), Some((t, _))) => {
+                let bars = self.market.candles(symbol, tf);
+                let entry = if intent.side == Side::Buy { t.ask } else { t.bid };
+                let policy = self.risk.config().stops.clone();
+                Some(aegis_risk::plan_stop(window(&bars), intent.side, entry, t.spread(), s, intent.sl_distance, intent.tp_distance, &policy))
+            }
+            _ => None,
+        };
+        let stops_changed = stop_plan.as_ref().is_some_and(|p| p.changed);
+        if let Some(p) = stop_plan.as_ref().filter(|p| p.changed) {
+            intent.sl_distance = p.sl_distance;
+            intent.tp_distance = p.tp_distance;
+        }
 
         // ---- engine-level checks (recorded with the decision)
         let mut checks = Vec::new();
@@ -114,6 +132,9 @@ impl Engine {
         checks.push(check("qualite_donnees", blocking.is_empty(), if blocking.is_empty() { "données de marché valides".to_string() } else { blocking.join("; ") }));
         let busy = self.inflight.values().any(|s| s == symbol);
         checks.push(check("ordre_en_cours", !busy, if busy { "un ordre est déjà en cours sur cet instrument" } else { "aucun ordre en cours" }));
+        if let Some(p) = &stop_plan {
+            checks.push(check("stop_initial", true, p.reason.clone()));
+        }
 
         // AI filter: only a validated model may veto; an unvalidated one is ignored.
         match &self.model {
@@ -141,6 +162,12 @@ impl Engine {
                 }
             }
             None => (None, "aucun backtest hors échantillon pour cette stratégie/instrument/unité de temps".to_string()),
+        };
+        // The backtest measured the strategy with ITS stops: it says nothing about an adapted stop.
+        let (win_probability, probability_source) = if stops_changed && win_probability.is_some() {
+            (None, "backtest mesuré avec les stops de la stratégie: non applicable au stop adapté".to_string())
+        } else {
+            (win_probability, probability_source)
         };
 
         // ---- P(TP before SL) from the scenario model; the most prudent validated source wins.
@@ -233,6 +260,7 @@ impl Engine {
                 day: self.accounting.as_ref().map(|a| &a.day),
                 peak_equity: self.accounting.as_ref().map(|a| a.peak_equity).unwrap_or(0.0),
                 live_armed: self.live_armed,
+                recent_slippage_points: self.latency.median_slippage(symbol, 20),
             };
             self.risk.evaluate(&proposal, &ctx)
         };
@@ -277,7 +305,7 @@ impl Engine {
             strategy_id: strategy_id.clone(),
             side: intent.side,
             mode: format!("{:?}", self.mode),
-            signal: json!({ "timeframe": tf.as_str(), "bar": bar_ts, "reason": intent.reason, "evidence": intent.evidence, "regime": regime.as_str(), "entry": entry, "sl": sl, "tp": tp }),
+            signal: json!({ "timeframe": tf.as_str(), "bar": bar_ts, "reason": intent.reason, "evidence": intent.evidence, "regime": regime.as_str(), "entry": entry, "sl": sl, "tp": tp, "stop": stop_plan }),
             outcome: outcome.to_string(),
             verdict: Some(json!({ "engine_checks": dv.engine_checks, "risk": dv.assessment })),
         };
@@ -300,8 +328,10 @@ impl Engine {
                         aegis_protocol::Body::Order { cid, .. } => cid.clone(),
                         _ => String::new(),
                     };
+                    let internal_us = started.elapsed().as_micros() as i64;
                     match self.send_order(body) {
                         Ok(()) => {
+                            self.latency.on_sent(&cid, symbol, "open", Some(internal_us), now_ms());
                             let _ = self.executor.mark_sent(&cid).await;
                             self.inflight.insert(cid.clone(), symbol.to_string());
                             let terminal_kind = if terminal == Some(TerminalKind::Simulator) { "simulator" } else { "mt5" };
@@ -312,6 +342,7 @@ impl Engine {
                             let spread_cost = dv.assessment.micro.as_ref().map(|m| m.costs.spread).unwrap_or(0.0);
                             if let Some(acc) = self.accounting.as_mut() {
                                 acc.day.on_entry_sent(spread_cost);
+                                acc.day.on_risk_committed(auth.risk_amount);
                             }
                             self.persist_accounting().await;
                             self.log("info", "execution", format!(
@@ -365,12 +396,24 @@ impl Engine {
     }
 
     pub(crate) async fn dispatch_command(&mut self, body: aegis_protocol::Body, what: &str, reason: &str) -> Result<String, String> {
-        let cid = match &body {
-            aegis_protocol::Body::Order { cid, .. } => cid.clone(),
-            _ => String::new(),
+        let (cid, symbol, action, modify) = match &body {
+            aegis_protocol::Body::Order { cid, symbol, action, ticket, sl, tp, .. } => (
+                cid.clone(),
+                symbol.clone(),
+                format!("{action:?}").to_lowercase(),
+                (*action == aegis_protocol::OrderAction::Modify).then_some((*ticket, *sl, *tp)),
+            ),
+            _ => (String::new(), String::new(), String::new(), None),
         };
         match self.send_order(body) {
             Ok(()) => {
+                self.latency.on_sent(&cid, &symbol, &action, None, now_ms());
+                if let Some((t, sl, tp)) = modify {
+                    self.modify_requests.insert(cid.clone(), (t, sl, tp, false));
+                    if self.modify_requests.len() > 500 {
+                        self.modify_requests.clear();
+                    }
+                }
                 let _ = self.executor.mark_sent(&cid).await;
                 self.audit("execution", "command_sent", json!({ "cid": cid, "what": what, "reason": reason })).await;
                 self.log("info", "execution", format!("{what} demandée ({reason})"));

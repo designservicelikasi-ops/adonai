@@ -7,15 +7,19 @@ mod day;
 mod engine;
 mod goal;
 mod position;
+mod protection;
+mod stops;
 
 pub use auth::{AuthError, Authorization};
-pub use config::{ConfigError, KillPositionPolicy, RiskConfig, TradingWindow};
+pub use config::{utc_weekday, weekday_index, ConfigError, KillPositionPolicy, MissingStopPolicy, RiskConfig, TradingWindow};
 pub use position::{manage as manage_position, ManagedPosition, PositionAction, PositionActionKind, PositionPolicy};
+pub use stops::{plan_stop, StopCandidate, StopMode, StopPlan, StopPolicy, StopRole};
+pub use protection::{ExpectedLevels, ProtectionAction, ProtectionGuard, ProtectionIncident, MAX_RESTORE_ATTEMPTS, MODIFY_VERIFY_MS};
 pub use goal::{goal_status, DailyGoal, GoalBasis, GoalPeriod, GoalPolicy, GoalStatus};
 pub use costs::{estimate_costs, evaluate_micro_profit, CostBreakdown, MicroProfitEvaluation};
 pub use day::{drawdown_pct, floating_pnl, DayStats};
 pub use engine::{
-    currencies_of, per_lot_loss, size_volume, Check, KillPlan, KillSwitchState, RiskAssessment, RiskContext, RiskEngine, TradeProposal,
+    currencies_of, per_lot_loss, size_volume, size_volume_scaled, Check, KillPlan, KillSwitchState, RiskAssessment, RiskContext, RiskEngine, TradeProposal,
     KILL_RESET_PHRASE,
 };
 

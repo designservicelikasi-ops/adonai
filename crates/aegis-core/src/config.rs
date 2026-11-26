@@ -291,6 +291,16 @@ fn write_private(path: &Path, content: &str) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_shipped_example_configuration_loads_and_validates() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/aegis.example.toml");
+        let cfg = EngineConfig::load(&path).unwrap_or_else(|e| panic!("config/aegis.example.toml: {e:?}"));
+        cfg.validate().unwrap();
+        cfg.risk.validate().unwrap();
+        assert_eq!(cfg.risk.stops.mode, aegis_risk::StopMode::Strategy);
+        assert_eq!(cfg.risk.missing_stop_policy, aegis_risk::MissingStopPolicy::Restore);
+    }
+
     use super::*;
 
     fn tmp() -> PathBuf {

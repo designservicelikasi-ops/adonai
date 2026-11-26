@@ -213,6 +213,10 @@ impl Engine {
         e.volume = volume;
         e.slippage_cost = slippage_cost;
         e.opened_ms = now_ms();
+        if e.sl_initial > 0.0 && ticket > 0 {
+            self.planned_sl.insert(ticket, e.sl_initial);
+            let _ = self.store.kv_set("position_planned_sl", &self.planned_sl).await;
+        }
         if let Err(err) = self.store.journal_open(&e).await {
             self.db_failed(&err.to_string());
         }

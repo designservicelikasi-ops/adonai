@@ -49,6 +49,7 @@ impl Rig {
         let account = AccountSnapshot {
             ts_ms: NOW, login: 1, server: "D".into(), currency: "USD".into(), balance: 10_000.0, equity: 10_000.0, margin: 0.0,
             margin_free: 10_000.0, leverage: 100, trade_mode: AccountTradeMode::Demo, trade_allowed: true,
+            margin_mode: aegis_types::AccountMarginMode::Hedging,
         };
         let tick = Tick { ts_ms: NOW, bid: 1.10000, ask: 1.10010 };
         let day = DayStats::new(NOW, 10_000.0, 10_000.0);
@@ -63,6 +64,7 @@ impl Rig {
         let ctx = RiskContext {
             now_ms: NOW, mode: Mode::DemoAuto, connected: true, terminal: Some(TerminalKind::Mt5), account: Some(&account), specs: &specs,
             tick: Some(&tick), positions: &[], pending: &[], day: Some(&day), peak_equity: 10_000.0, live_armed: false,
+            recent_slippage_points: None,
         };
         let a = self.risk.evaluate(&proposal, &ctx);
         assert!(a.approved, "{}", a.rejection_summary());

@@ -36,6 +36,7 @@ fn account(equity: f64) -> AccountSnapshot {
         leverage: 100,
         trade_mode: AccountTradeMode::Demo,
         trade_allowed: true,
+        margin_mode: aegis_types::AccountMarginMode::Hedging,
     }
 }
 
@@ -51,6 +52,7 @@ struct World {
     day: Option<DayStats>,
     peak: f64,
     live_armed: bool,
+    recent_slippage_points: Option<f64>,
 }
 
 impl World {
@@ -69,6 +71,7 @@ impl World {
             day: Some(DayStats::new(NOW, 10_000.0, 10_000.0)),
             peak: 10_000.0,
             live_armed: false,
+            recent_slippage_points: None,
         }
     }
     fn ctx(&self) -> RiskContext<'_> {
@@ -85,6 +88,7 @@ impl World {
             day: self.day.as_ref(),
             peak_equity: self.peak,
             live_armed: self.live_armed,
+            recent_slippage_points: self.recent_slippage_points,
         }
     }
 }
@@ -684,4 +688,111 @@ fn currencies_are_taken_from_the_spec_or_the_fx_name() {
     assert_eq!(currencies_of(&unknown), vec!["GBP".to_string(), "JPY".to_string()]);
     let index = SymbolSpec { symbol: "US500".into(), currency_base: String::new(), currency_profit: "USD".into(), ..eurusd() };
     assert_eq!(currencies_of(&index), vec!["US500".to_string(), "USD".to_string()]);
+}
+
+// ------------------------------------------------------------------ Risk Guardian 2.0 (0.3)
+
+#[test]
+fn a_wider_stop_gives_a_smaller_volume_for_the_same_budget() {
+    let w = World::new();
+    let mut e = engine();
+    let near = e.evaluate(&TradeProposal { sl: 1.09910, ..proposal("near") }, &w.ctx()); // 100 points
+    let far = e.evaluate(&TradeProposal { sl: 1.09710, ..proposal("far") }, &w.ctx()); // 300 points
+    assert!(near.approved && far.approved, "{} / {}", near.rejection_summary(), far.rejection_summary());
+    assert!(far.volume < near.volume, "far stop {} lots must be smaller than near stop {} lots", far.volume, near.volume);
+    // Both stay within the same money budget: a far stop is not a bigger financial risk.
+    assert!(near.risk_amount <= near.risk_budget + 1e-6 && far.risk_amount <= far.risk_budget + 1e-6);
+    // A stop so far that even the broker minimum exceeds the budget is refused, never traded at the minimum.
+    let huge = e.evaluate(&TradeProposal { sl: 1.04000, ..proposal("huge") }, &w.ctx());
+    assert_rejected_for(&huge, "taille_position");
+}
+
+#[test]
+fn portfolio_risk_counts_every_stop_and_refuses_an_unprotected_position() {
+    let mut w = World::new();
+    let mut e = engine();
+    // Unprotected position (no stop): the portfolio risk is unbounded.
+    w.positions = vec![Position { sl: 0.0, ..position(1, "GBPUSD", 0.1) }];
+    w.specs.insert("GBPUSD".into(), SymbolSpec { symbol: "GBPUSD".into(), currency_base: "GBP".into(), ..eurusd() });
+    let a = e.evaluate(&proposal("p1"), &w.ctx());
+    assert_rejected_for(&a, "risque_portefeuille");
+    // Stop moved to break-even: that position risks nothing more.
+    w.positions = vec![Position { sl: 1.1, price_open: 1.1, ..position(1, "GBPUSD", 0.1) }];
+    let a = e.evaluate(&proposal("p2"), &w.ctx());
+    assert!(a.approved, "{}", a.rejection_summary());
+    // Two positions each risking ~0.5 % plus the new one exceed an explicit 1.2 % limit.
+    let mut e = RiskEngine::new(RiskConfig { max_portfolio_risk_pct: 1.2, max_open_positions: 5, ..test_config() }).unwrap();
+    let risky = |t| Position { price_open: 1.1, sl: 1.09790, volume: 0.24, ..position(t, "GBPUSD", 0.24) };
+    w.positions = vec![risky(1), Position { symbol: "AUDUSD".into(), ..risky(2) }];
+    w.specs.insert("AUDUSD".into(), SymbolSpec { symbol: "AUDUSD".into(), currency_base: "AUD".into(), ..eurusd() });
+    let a = e.evaluate(&proposal("p3"), &w.ctx());
+    assert_rejected_for(&a, "risque_portefeuille");
+}
+
+#[test]
+fn netting_and_unknown_accounts_never_stack_or_offset_positions() {
+    for mode in [AccountMarginMode::Netting, AccountMarginMode::Exchange, AccountMarginMode::Unknown] {
+        let mut w = World::new();
+        w.account.as_mut().unwrap().margin_mode = mode;
+        let mut e = RiskEngine::new(RiskConfig { max_positions_per_symbol: 3, allow_hedging: true, ..test_config() }).unwrap();
+        // Same side: on netting it would be merged (and the merged position would take the new stop).
+        w.positions = vec![position(1, "EURUSD", 0.1)];
+        assert_rejected_for(&e.evaluate(&proposal(&format!("{mode:?}-same")), &w.ctx()), "mode_marge");
+        // Opposite side: it would reduce, close or reverse the position — never a hedge.
+        w.positions = vec![Position { side: Side::Sell, sl: 1.11, tp: 1.08, ..position(1, "EURUSD", 0.1) }];
+        assert_rejected_for(&e.evaluate(&proposal(&format!("{mode:?}-opp")), &w.ctx()), "mode_marge");
+        // Nothing on the symbol: allowed.
+        w.positions.clear();
+        let a = e.evaluate(&proposal(&format!("{mode:?}-free")), &w.ctx());
+        assert!(a.approved, "{mode:?}: {}", a.rejection_summary());
+    }
+}
+
+#[test]
+fn hedging_needs_a_hedging_account_and_an_explicit_policy() {
+    let mut w = World::new(); // hedging account
+    w.positions = vec![Position { side: Side::Sell, sl: 1.11, tp: 1.08, ..position(1, "EURUSD", 0.1) }];
+    let mut off = RiskEngine::new(RiskConfig { max_positions_per_symbol: 2, ..test_config() }).unwrap();
+    assert_rejected_for(&off.evaluate(&proposal("h1"), &w.ctx()), "couverture");
+    let mut on = RiskEngine::new(RiskConfig { max_positions_per_symbol: 2, allow_hedging: true, ..test_config() }).unwrap();
+    let a = on.evaluate(&proposal("h2"), &w.ctx());
+    assert!(a.approved, "{}", a.rejection_summary());
+    // The hedge is a new risk: it is sized on its own stop and counted in the portfolio risk.
+    assert!(a.checks.iter().any(|c| c.name == "risque_portefeuille" && c.passed));
+}
+
+#[test]
+fn a_losing_streak_can_only_reduce_the_size() {
+    let mut w = World::new();
+    let cfg = RiskConfig { loss_streak_risk_scale: vec![1.0, 1.0, 0.75, 0.5], max_consecutive_losses: 0, ..test_config() };
+    let normal = RiskEngine::new(cfg.clone()).unwrap().evaluate(&proposal("s0"), &w.ctx());
+    w.day.as_mut().unwrap().consecutive_losses = 4;
+    let reduced = RiskEngine::new(cfg).unwrap().evaluate(&proposal("s4"), &w.ctx());
+    assert!(normal.approved && reduced.approved, "{}", reduced.rejection_summary());
+    assert!(reduced.volume <= normal.volume * 0.5 + 1e-9, "after 4 losses {} lots, normal {}", reduced.volume, normal.volume);
+    assert!(reduced.checks.iter().any(|c| c.name == "reduction_apres_pertes"));
+}
+
+#[test]
+fn daily_risk_budget_weekdays_and_observed_slippage() {
+    let mut w = World::new();
+    // Daily budget 1 % of 10 000 = 100, 60 already committed, the new trade risks ~50.
+    w.day.as_mut().unwrap().risk_sent = 60.0;
+    let mut e = RiskEngine::new(RiskConfig { daily_risk_budget_pct: 1.0, ..test_config() }).unwrap();
+    assert_rejected_for(&e.evaluate(&proposal("b1"), &w.ctx()), "budget_risque_journalier");
+    w.day.as_mut().unwrap().risk_sent = 0.0;
+    assert!(e.evaluate(&proposal("b2"), &w.ctx()).approved);
+
+    // NOW (2027-01-15) is a Friday (UTC).
+    assert_eq!(utc_weekday(NOW), 4);
+    let mut e = RiskEngine::new(RiskConfig { allowed_weekdays: vec!["mon".into(), "tue".into()], ..test_config() }).unwrap();
+    assert_rejected_for(&e.evaluate(&proposal("d1"), &w.ctx()), "jours_autorises");
+    let mut e = RiskEngine::new(RiskConfig { allowed_weekdays: vec!["fri".into()], ..test_config() }).unwrap();
+    assert!(e.evaluate(&proposal("d2"), &w.ctx()).approved);
+
+    let mut e = RiskEngine::new(RiskConfig { max_observed_slippage_points: 3.0, ..test_config() }).unwrap();
+    w.recent_slippage_points = Some(5.5);
+    assert_rejected_for(&e.evaluate(&proposal("l1"), &w.ctx()), "slippage_observe");
+    w.recent_slippage_points = Some(1.0);
+    assert!(e.evaluate(&proposal("l2"), &w.ctx()).approved);
 }

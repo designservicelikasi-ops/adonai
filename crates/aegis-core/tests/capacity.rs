@@ -111,6 +111,7 @@ async fn two_thousand_round_trips_in_one_day() {
             day: Some(&day),
             peak_equity: 10_000.0,
             live_armed: false,
+            recent_slippage_points: None,
         };
         let a = risk.evaluate(&p, &ctx);
         decide_us.push(t0.elapsed().as_secs_f64() * 1e6);
@@ -141,7 +142,7 @@ async fn two_thousand_round_trips_in_one_day() {
         let received = terminal_side.open(&line, now).unwrap().body;
         let (outcome, _) = broker.execute(&received, now);
         let back = terminal_side.seal(outcome.unwrap().to_body(), now).unwrap();
-        let Body::Result { cid: rc, ok, retcode, ticket, price, volume, msg } = engine_side.open(&back, now).unwrap().body else { panic!("no result") };
+        let Body::Result { cid: rc, ok, retcode, ticket, price, volume, msg, .. } = engine_side.open(&back, now).unwrap().body else { panic!("no result") };
         match exec.on_result(&rc, ok, retcode, ticket, price, volume, &msg).await.unwrap() {
             ExecEvent::Filled { .. } => entries += 1,
             other => panic!("entry {i} not filled: {other:?}"),
@@ -160,7 +161,7 @@ async fn two_thousand_round_trips_in_one_day() {
             store.insert_deal(d).await.unwrap();
         }
         let back = terminal_side.seal(outcome.unwrap().to_body(), now).unwrap();
-        let Body::Result { cid: rc, ok, retcode, ticket, price, volume, msg } = engine_side.open(&back, now).unwrap().body else { panic!("no result") };
+        let Body::Result { cid: rc, ok, retcode, ticket, price, volume, msg, .. } = engine_side.open(&back, now).unwrap().body else { panic!("no result") };
         if let ExecEvent::CommandDone { .. } = exec.on_result(&rc, ok, retcode, ticket, price, volume, &msg).await.unwrap() {
             closes += 1;
         }

@@ -101,8 +101,9 @@ async fn wait_for(h: &EngineHandle, what: &str, f: impl Fn(&EngineView) -> bool)
             return v;
         }
         if tokio::time::Instant::now() > deadline {
-            let logs: Vec<String> = v.logs.iter().take(25).map(|l| format!("[{}] {}", l.source, l.text)).collect();
-            panic!("timeout waiting for: {what}\nrecent engine log:\n{}", logs.join("\n"));
+            // Strategy signals flood the log: show the rest first.
+            let logs: Vec<String> = v.logs.iter().filter(|l| l.source != "strategy").take(25).map(|l| format!("[{}] {}", l.source, l.text)).collect();
+            panic!("timeout waiting for: {what}\nrecent engine log (without strategy signals):\n{}\nalerts: {:?}", logs.join("\n"), v.alerts.iter().take(5).map(|a| &a.text).collect::<Vec<_>>());
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -889,4 +890,100 @@ async fn user_sl_tp_in_pips_and_a_monthly_goal_are_applied_and_kept() {
     assert_eq!((v.brain.config.sl_pips, v.brain.config.max_tp_pips), (12.0, 8.0));
     assert_eq!(v.risk_config.daily_goal.period, aegis_risk::GoalPeriod::Month);
     h.shutdown().await;
+}
+
+// ------------------------------------------------------------------ Risk Guardian 2.0 (0.3)
+
+/// Breakout, then the price holds just above the entry: the position stays open.
+fn breakout_then_hold() -> Vec<f64> {
+    let mut v = breakout_script(60);
+    v.truncate(60 + 5 + 3);
+    v.extend((0..3_000).map(|i| if i % 2 == 0 { 1.1028 } else { 1.1027 }));
+    v
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_position_that_loses_its_stop_at_the_broker_is_protected_again() {
+    let dir = temp_dir("guard");
+    let mut cfg = config(&dir);
+    cfg.risk.missing_stop_grace_ms = 1_000;
+    seed_evidence(&dir, 60, 100).await;
+    let h = start(cfg.clone()).await.unwrap();
+    let sim = spawn(sim_config(&h, &cfg, breakout_then_hold()));
+    wait_for(&h, "simulator connected", |v| v.connection.is_some() && v.account.is_some() && !v.specs.is_empty()).await;
+    must(&h, Command::SetStrategyStage { id: "donchian_breakout".into(), stage: StrategyStage::Demo }).await;
+    must(&h, Command::SetMode { mode: Mode::DemoAuto, confirmation: String::new() }).await;
+    let v = wait_for(&h, "AEGIS position open with its stop", |v| v.positions.iter().any(|p| p.magic == cfg.execution.magic && p.sl > 0.0)).await;
+    assert_eq!(v.guardian.account_margin_mode, "hedging", "the account mode travels with the account frame");
+    let p = v.positions.iter().find(|p| p.magic == cfg.execution.magic).unwrap().clone();
+    let planned = v.decisions.iter().find(|d| d.cid.as_deref() == Some(p.comment.as_str())).map(|d| d.sl).unwrap();
+    // Entry latency is split into engine time and terminal/broker time.
+    assert!(v.guardian.execution.internal_us.count >= 1 && v.guardian.execution.broker_ms.count >= 1, "{:?}", v.guardian.execution);
+    assert!(v.guardian.portfolio_risk.is_some_and(|r| r > 0.0));
+
+    // The stop disappears at the broker.
+    sim.control.send(SimControl::StripStops).await.unwrap();
+    wait_for(&h, "missing stop detected", |v| v.guardian.incidents.iter().any(|i| i.ticket == p.ticket && i.kind == "stop_manquant")).await;
+    // (The strategy may close the position right after: the guard's record is what is checked.)
+    let v = wait_for(&h, "stop re-installed and seen at the broker", |v| {
+        v.guardian.incidents.iter().any(|i| i.ticket == p.ticket && i.kind == "stop_retabli") && v.guardian.verified_modifications >= 1
+    })
+    .await;
+    let restore = v.commands.iter().find(|c| c.ticket == p.ticket && c.action == "modify" && c.reason.contains("réinstallation")).expect("restoration command");
+    // The guard re-installs the PLANNED stop (it never invents a different one).
+    assert!((restore.sl - planned).abs() < 1e-9, "restored {} vs planned {planned}", restore.sl);
+    assert_eq!(restore.status, "done");
+    assert!(v.alerts.iter().any(|a| a.text.contains("sans stop-loss")));
+
+    sim.stop().await;
+    h.shutdown().await;
+    let store = Store::open(&dir.join("aegis.db")).await.unwrap();
+    let audit: Vec<String> = store.audit_tail(1_000).await.unwrap().into_iter().map(|a| a.event).collect();
+    assert!(audit.iter().any(|e| e == "stop_restore"), "the restoration is in the audit trail");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_netting_account_is_recognised_and_never_stacks_positions() {
+    let dir = temp_dir("netting");
+    let cfg = {
+        let mut c = config(&dir);
+        c.risk.max_positions_per_symbol = 3;
+        c.risk.max_open_positions = 5;
+        c
+    };
+    seed_evidence(&dir, 60, 100).await;
+    let h = start(cfg.clone()).await.unwrap();
+    let mut s = sim_config(&h, &cfg, breakout_then_hold());
+    s.broker.margin_mode = AccountMarginMode::Netting;
+    let sim = spawn(s);
+    let v = wait_for(&h, "netting account", |v| v.account.as_ref().is_some_and(|a| a.margin_mode == AccountMarginMode::Netting)).await;
+    assert_eq!(v.guardian.account_margin_mode, "netting");
+    must(&h, Command::SetStrategyStage { id: "donchian_breakout".into(), stage: StrategyStage::Demo }).await;
+    must(&h, Command::SetMode { mode: Mode::DemoAuto, confirmation: String::new() }).await;
+    wait_for(&h, "first position", |v| !v.positions.is_empty()).await;
+    // Any later entry on the same symbol would merge into / offset that position: refused.
+    let v = wait_for(&h, "a later decision refused because of the netting account", |v| {
+        v.decisions.iter().any(|d| d.failures().iter().any(|f| f.starts_with("mode_marge")))
+    })
+    .await;
+    assert_eq!(v.positions.len(), 1);
+    sim.stop().await;
+    h.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_adapted_stop_never_borrows_the_strategy_backtest_probability() {
+    let r = rig_with("adaptive-stop", 60, true, |c| c.risk.stops.mode = aegis_risk::StopMode::Adaptive).await;
+    let v = wait_for(&r.h, "breakout decision", |v| breakout_decision(v).is_some()).await;
+    let d = breakout_decision(&v).unwrap();
+    let plan = d.engine_checks.iter().find(|c| c.name == "stop_initial").expect("the stop choice is explained");
+    // On the quiet fixture history the planner picks a volatility (or structural) stop.
+    assert!(plan.detail.contains("structurel") || plan.detail.contains("volatilité"), "{}", plan.detail);
+    // The only evidence is a backtest measured with the strategy's own stops: not applicable.
+    let micro = d.micro();
+    assert!(micro.is_none_or(|m| m.win_probability.is_none()), "{:?}", micro.map(|m| &m.probability_source));
+    assert_ne!(d.outcome, "approved");
+    assert!(d.failures().iter().any(|f| f.starts_with("seuil_probabilite") || f.starts_with("esperance_nette")));
+    r.sim.stop().await;
+    r.h.shutdown().await;
 }

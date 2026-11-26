@@ -59,6 +59,9 @@ pub struct DayStats {
     pub month_best_gross: Option<f64>,
     #[serde(default)]
     pub month_best_net: Option<f64>,
+    /// Money at risk (to the stop) of the entries sent today: the daily risk budget.
+    #[serde(default)]
+    pub risk_sent: f64,
 }
 
 impl Default for DayStats {
@@ -94,6 +97,7 @@ impl DayStats {
             month_net: 0.0,
             month_best_gross: None,
             month_best_net: None,
+            risk_sent: 0.0,
         }
     }
 
@@ -160,6 +164,13 @@ impl DayStats {
     }
 
     /// An entry instruction left the engine; `spread_cost` is the spread estimated at decision time.
+    /// Count the money at risk of an entry that was sent (daily risk budget).
+    pub fn on_risk_committed(&mut self, risk_amount: f64) {
+        if risk_amount.is_finite() && risk_amount > 0.0 {
+            self.risk_sent += risk_amount;
+        }
+    }
+
     pub fn on_entry_sent(&mut self, spread_cost: f64) {
         self.entries_sent += 1;
         if spread_cost.is_finite() && spread_cost > 0.0 {
