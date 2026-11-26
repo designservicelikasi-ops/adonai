@@ -154,7 +154,7 @@ export default function App() {
               onClick={() => setPage(p.id)}
               className={cx(
                 "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors disabled:opacity-30",
-                page === p.id ? "bg-aegis-500/12 text-aegis-300 shadow-[inset_2px_0_0_#C9A227]" : "text-fog-300 hover:bg-ink-800",
+                page === p.id ? "bg-aegis-500/12 text-aegis-300 shadow-[inset_2px_0_0_#C6A15B]" : "text-fog-300 hover:bg-ink-800",
               )}
             >
               <span className="w-4 text-center text-fog-500">{p.icon}</span>

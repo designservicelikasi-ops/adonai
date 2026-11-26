@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 export interface Point { t: number; v: number }
 
 /** Line/area chart of real engine data. Times are epoch milliseconds. */
-export function TimeChart({ points, height = 260, kind = "area", color = "#C9A227", baseline, priceDigits = 5 }: { points: Point[]; height?: number; kind?: "area" | "line"; color?: string; baseline?: number; priceDigits?: number }) {
+export function TimeChart({ points, height = 260, kind = "area", color = "#C6A15B", baseline, priceDigits = 5 }: { points: Point[]; height?: number; kind?: "area" | "line"; color?: string; baseline?: number; priceDigits?: number }) {
   const box = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const series = useRef<ISeriesApi<"Area"> | ISeriesApi<"Line"> | null>(null);
@@ -13,11 +13,11 @@ export function TimeChart({ points, height = 260, kind = "area", color = "#C9A22
     if (!box.current) return;
     const c = createChart(box.current, {
       height,
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8C9BAB", fontFamily: "JetBrains Mono, SF Mono, Consolas, monospace", fontSize: 11 },
-      grid: { vertLines: { color: "rgba(39,53,69,.35)" }, horzLines: { color: "rgba(39,53,69,.35)" } },
-      rightPriceScale: { borderColor: "#1C2734" },
-      timeScale: { borderColor: "#1C2734", timeVisible: true, secondsVisible: false },
-      crosshair: { vertLine: { color: "#3A4B5E", style: LineStyle.Dashed }, horzLine: { color: "#3A4B5E", style: LineStyle.Dashed } },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#697386", fontFamily: "JetBrains Mono, SF Mono, Consolas, monospace", fontSize: 11 },
+      grid: { vertLines: { color: "rgba(232,227,216,.8)" }, horzLines: { color: "rgba(232,227,216,.8)" } },
+      rightPriceScale: { borderColor: "#E8E3D8" },
+      timeScale: { borderColor: "#E8E3D8", timeVisible: true, secondsVisible: false },
+      crosshair: { vertLine: { color: "#9A7839", style: LineStyle.Dashed }, horzLine: { color: "#9A7839", style: LineStyle.Dashed } },
       autoSize: true,
     });
     const fmt = { type: "price" as const, precision: priceDigits, minMove: 1 / 10 ** priceDigits };
@@ -25,7 +25,7 @@ export function TimeChart({ points, height = 260, kind = "area", color = "#C9A22
       kind === "area"
         ? c.addAreaSeries({ lineColor: color, topColor: color + "55", bottomColor: color + "00", lineWidth: 2, priceFormat: fmt })
         : c.addLineSeries({ color, lineWidth: 2, priceFormat: fmt });
-    if (baseline !== undefined) series.current.createPriceLine({ price: baseline, color: "#3A4B5E", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
+    if (baseline !== undefined) series.current.createPriceLine({ price: baseline, color: "#BFB39A", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
     chart.current = c;
     return () => {
       c.remove();

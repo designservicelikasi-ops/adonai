@@ -94,7 +94,7 @@ export default function Performance({ s }: { s: Json | null }) {
       </Panel>
       <div className="grid gap-5 xl:grid-cols-3">
         <Panel title="Résultat net cumulé" className="xl:col-span-2" right={<span className="num">drawdown max {fmtNum(perf.max_drawdown)} {s?.account?.currency ?? ""}</span>}>
-          {curve.length > 1 ? <TimeChart points={curve} kind="area" color="#3DD598" baseline={0} priceDigits={2} /> : <Empty>La courbe apparaît après deux transactions clôturées.</Empty>}
+          {curve.length > 1 ? <TimeChart points={curve} kind="area" color="#C6A15B" baseline={0} priceDigits={2} /> : <Empty>La courbe apparaît après deux transactions clôturées.</Empty>}
         </Panel>
         <Panel title="Long terme">
           <div className="space-y-4">

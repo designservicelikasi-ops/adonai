@@ -10,10 +10,10 @@ function Reliability({ report, size = 180 }: { report: Json; size?: number }) {
   const p = (v: number) => 12 + v * (size - 24);
   return (
     <svg width={size} height={size} className="rounded-md bg-ink-950">
-      <line x1={p(0)} y1={p(1)} x2={p(1)} y2={p(0)} stroke="#3A4B5E" strokeDasharray="4 4" />
-      <rect x={p(0)} y={p(0)} width={size - 24} height={size - 24} fill="none" stroke="#1C2734" />
+      <line x1={p(0)} y1={p(1)} x2={p(1)} y2={p(0)} stroke="#BFB39A" strokeDasharray="4 4" />
+      <rect x={p(0)} y={p(0)} width={size - 24} height={size - 24} fill="none" stroke="#E8E3D8" />
       {bins.map((b, i) => (
-        <circle key={i} cx={p(b.mean_predicted)} cy={p(1 - b.observed_rate)} r={3 + 6 * Math.sqrt(b.count / max)} fill="#C9A227" fillOpacity={0.75} stroke="#F1D27A" strokeWidth={0.5}>
+        <circle key={i} cx={p(b.mean_predicted)} cy={p(1 - b.observed_rate)} r={3 + 6 * Math.sqrt(b.count / max)} fill="#C6A15B" fillOpacity={0.75} stroke="#9A7839" strokeWidth={0.5}>
           <title>{`prévu ${(b.mean_predicted * 100).toFixed(1)} % · observé ${(b.observed_rate * 100).toFixed(1)} % · ${b.count} obs.`}</title>
         </circle>
       ))}

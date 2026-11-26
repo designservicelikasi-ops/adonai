@@ -34,7 +34,7 @@ function StrategyCard({ st, onDone }: { st: Json; onDone: () => void }) {
         <>
           <Badge tone={st.stage === "live_approved" ? "bad" : st.stage === "demo" ? "info" : st.stage === "disabled" ? "muted" : "gold"}>{st.stage}</Badge>
           <label className="flex items-center gap-1.5 text-xs">
-            <input type="checkbox" className="accent-[#C9A227]" checked={st.enabled} onChange={(e) => run("set_strategy_enabled", { id: m.id, enabled: e.target.checked })} /> active
+            <input type="checkbox" className="accent-[#C6A15B]" checked={st.enabled} onChange={(e) => run("set_strategy_enabled", { id: m.id, enabled: e.target.checked })} /> active
           </label>
         </>
       }

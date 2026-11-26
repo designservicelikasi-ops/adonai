@@ -2,16 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
+:root { color-scheme: light; }
 html, body, #root { height: 100%; }
-body { @apply bg-ink-900 text-fog-100 font-sans antialiased; font-feature-settings: "cv11", "ss01"; }
+body { @apply bg-ink-950 text-fog-100 font-sans antialiased; font-feature-settings: "cv11", "ss01"; }
 .num { @apply font-mono; font-variant-numeric: tabular-nums; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #1C2734; border-radius: 8px; border: 2px solid #0A0E13; }
+::-webkit-scrollbar-thumb { background: #DCD4C2; border-radius: 8px; border: 2px solid #FAF9F6; }
 ::-webkit-scrollbar-track { background: transparent; }
-input, select, textarea { @apply bg-ink-950 border border-ink-600 rounded-md px-2.5 py-1.5 text-sm text-fog-100 outline-none; }
-input:focus, select:focus, textarea:focus { @apply border-aegis-500; box-shadow: 0 0 0 3px rgba(201,162,39,.15); }
+input, select, textarea { @apply bg-white border border-ink-600 rounded-md px-2.5 py-1.5 text-sm text-fog-100 outline-none transition-shadow; }
+input:focus, select:focus, textarea:focus { @apply border-aegis-500; box-shadow: 0 0 0 3px rgba(198,161,91,.22); }
 table { @apply w-full text-sm; }
-th { @apply text-left font-medium text-fog-400 text-xs uppercase tracking-wider px-3 py-2 border-b border-ink-700 bg-ink-850 sticky top-0; }
+th { @apply text-left font-medium text-fog-400 text-[11px] uppercase tracking-wider px-3 py-2 border-b border-ink-700 bg-ink-900 sticky top-0; }
 td { @apply px-3 py-2 border-b border-ink-750 align-top; }
-tr:hover td { @apply bg-ink-800/60; }
+tr:hover td { @apply bg-ink-900; }
+.gold-rule { background: linear-gradient(90deg, transparent, #D4AF37 20%, #C6A15B 50%, #D4AF37 80%, transparent); height: 1px; }
+.gold-text { background: linear-gradient(180deg, #B08A45, #9A7839); -webkit-background-clip: text; background-clip: text; color: transparent; }
+:focus-visible { outline: 2px solid #C6A15B; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

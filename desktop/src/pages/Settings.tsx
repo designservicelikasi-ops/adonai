@@ -97,7 +97,7 @@ function set(o: Json, path: string, v: unknown): Json {
 }
 
 function FieldInput({ f, value, onChange }: { f: Field; value: Json; onChange: (v: Json) => void }) {
-  if (f.kind === "bool") return <input type="checkbox" className="h-4 w-4 accent-[#C9A227]" checked={!!value} onChange={(e) => onChange(e.target.checked)} />;
+  if (f.kind === "bool") return <input type="checkbox" className="h-4 w-4 accent-[#C6A15B]" checked={!!value} onChange={(e) => onChange(e.target.checked)} />;
   if (f.kind === "select") return <select value={value} onChange={(e) => onChange(e.target.value)}>{f.options!.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>;
   return <input className="w-32 num text-right" type="number" step={f.kind === "int" ? 1 : f.step ?? 0.01} value={value ?? ""} onChange={(e) => onChange(f.kind === "int" ? parseInt(e.target.value || "0", 10) : parseFloat(e.target.value))} />;
 }

@@ -1,4 +1,63 @@
-# AEGIS — État du projet et rapport de livraison (0.2.0)
+# AEGIS — État du projet et rapport de livraison
+
+## POINT DE REPRISE 0.3 (2026-11-26) — directive « Master Upgrade »
+
+Audit et plan : `docs/AUDIT_V3.md`. Détail des ajouts : `CHANGELOG.md` (section 0.3.0).
+**304 tests réussis, 0 échoué** (`./scripts/test.sh`) au dernier commit Rust ; TypeScript du
+desktop : `npx tsc --noEmit` sans erreur.
+
+| Phase | État | Commit |
+|---|---|---|
+| 1 Audit | fait | `ca159c6` |
+| 2 Risk Guardian 2.0 et exécution | fait (testé contre le simulateur) | `5fc84e6` |
+| 3 Autonomy Commander | fait | `1129c62` |
+| 4 Régimes, multi-unités, structure, scanner | fait | `1729d4a` |
+| 5 Micro-Profit 2.0, Recovery & Hedge | fait | `ef768ac` |
+| 6 Fast Learning | fait | `81c599a` |
+| 7 Multi-actifs, exposition corrélée | fait | `9c80b6d` |
+| 8 Desktop blanc et or | **EN COURS** | ce commit |
+| 9 Validation, livraison, rapport final | à faire | — |
+
+### Phase 8 — ce qui est fait
+- Thème PURE WHITE & GOLD par les jetons (`desktop/tailwind.config.js`, `src/styles.css`,
+  graphiques, boutons, badges, modales) : les 11 pages existantes sont passées en clair.
+- Kit commun `src/components/kit.tsx` (en-tête, chargement / vide / erreur, contrôles,
+  confirmations, onglets).
+- Nouvelles pages écrites, reliées aux sections réelles du moteur (`/api/v1/view/<section>`) :
+  `CommandCenter.tsx`, `MarketIntel.tsx`, `Scanner.tsx`, `Micro.tsx`, `PositionIntel.tsx`.
+
+### Phase 8 — ce qui reste (dans cet ordre)
+1. Pages à écrire : `Recovery.tsx` (section `recovery`), `Autonomy.tsx` (`autonomy` ;
+   commandes `grant_autonomy`, `revoke_autonomy`, `set_default_profile`), `RiskGuardian.tsx`
+   (`guardian`, `kill`, `risk_config`), `Learning.tsx` (`learning`, `probability_models` ;
+   `run_parameter_sweep`, `audit_data`), `Backtesting.tsx` (`backtests`, `last_backtest`),
+   `Portfolio.tsx` (`portfolio` ; `set_symbol_enabled`), `Mt5.tsx` (`connection`, `bridge`,
+   `guardian.execution`), `Security.tsx` (`bridge.key_source`, `autonomy.events` refusés,
+   vérification d'audit), `Notifications.tsx` (`alerts`), `Audit.tsx` (`audit`, `orders`,
+   `commands`, `verify_audit`).
+2. **`App.tsx` : brancher les pages** (les nouvelles ne sont pas encore dans la navigation) ;
+   barre latérale groupée (Pilotage, Intelligence, Recherche, Contrôle, Système), raccourci
+   Ctrl/Cmd+K, en-tête avec profil d'autonomie.
+3. `npm run build`, contrôle visuel en mode aperçu (`VITE_AEGIS_PREVIEW=1`).
+4. Versions desktop 0.3.0 (`package.json`, `src-tauri/Cargo.toml`, `tauri.conf.json`).
+
+### Phase 9 — à faire
+Documentation finale (README, ARCHITECTURE, KNOWN_LIMITATIONS, TEST_REPORT), rapport final
+(partie 25), notification Telegram (optionnelle, sans clé dans le code), pousser sur GitHub
+**avec l'accord de l'utilisateur** pour lancer la CI Windows/Linux/MQL5 (jamais exécutée
+depuis ces changements ; le connecteur 1.20 n'a jamais été compilé).
+
+### Reprendre
+```sh
+cd aegis && . "$HOME/.cargo/env"
+git config core.filemode false     # disque exFAT : ignorer les droits
+./scripts/test.sh                  # 304 tests attendus
+cd desktop && npx tsc --noEmit
+```
+
+---
+
+## Historique 0.2.0
 
 Dernière mise à jour : 2026-11-18. Référence : spécification v2 (`docs/SPECIFICATION.md`),
 audit et plan (`docs/AUDIT_V2.md`). Ce fichier permet de reprendre le travail sans perdre le

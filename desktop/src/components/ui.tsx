@@ -33,8 +33,8 @@ const badgeTones = {
   bad: "bg-down-500/12 text-down-400 border-down-500/30",
   warn: "bg-warn-400/10 text-warn-400 border-warn-400/30",
   info: "bg-info-400/10 text-info-400 border-info-400/30",
-  gold: "bg-aegis-500/12 text-aegis-300 border-aegis-500/35",
-  muted: "bg-ink-700/60 text-fog-400 border-ink-600",
+  gold: "bg-aegis-200/60 text-aegis-300 border-aegis-500/50",
+  muted: "bg-ink-750 text-fog-400 border-ink-700",
 } as const;
 export type Tone = keyof typeof badgeTones;
 
@@ -50,7 +50,7 @@ export function Badge({ tone = "muted", children, dot }: { tone?: Tone; children
 export function Button({ children, onClick, kind = "default", disabled, small, title, type }: { children: ReactNode; onClick?: () => void; kind?: "default" | "primary" | "danger" | "ghost"; disabled?: boolean; small?: boolean; title?: string; type?: "button" | "submit" }) {
   const k = {
     default: "border-ink-600 bg-ink-750 hover:bg-ink-700 text-fog-100",
-    primary: "border-aegis-500/60 bg-aegis-500/15 hover:bg-aegis-500/25 text-aegis-300",
+    primary: "border-aegis-600 bg-gradient-to-b from-aegis-500 to-aegis-600 hover:from-aegis-400 hover:to-aegis-600 text-white shadow-gold",
     danger: "border-down-500/60 bg-down-500/15 hover:bg-down-500/25 text-down-400",
     ghost: "border-transparent hover:bg-ink-750 text-fog-300",
   }[kind];
@@ -67,9 +67,9 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export function Bar({ value, max = 1, tone = "gold" }: { value: number; max?: number; tone?: "gold" | "up" | "down" }) {
   const pct = Math.max(0, Math.min(100, (value / (max || 1)) * 100));
-  const c = { gold: "from-aegis-600 to-aegis-300", up: "from-up-500 to-up-400", down: "from-down-500 to-down-400" }[tone];
+  const c = { gold: "from-aegis-600 via-aegis-500 to-aegis-metal", up: "from-up-500 to-up-400", down: "from-down-500 to-down-400" }[tone];
   return (
-    <div className="h-2 w-full rounded-full bg-ink-700 overflow-hidden">
+    <div className="h-2 w-full rounded-full bg-ink-750 overflow-hidden" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
       <div className={cx("h-full rounded-full bg-gradient-to-r transition-[width] duration-500", c)} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -107,7 +107,7 @@ export function ToastHost({ children }: { children: ReactNode }) {
       {children}
       <div className="fixed bottom-5 right-5 z-50 flex w-[420px] flex-col gap-2">
         {items.map((t) => (
-          <div key={t.id} className={cx("rounded-lg border px-4 py-3 text-sm shadow-panel animate-rise backdrop-blur", t.tone === "ok" ? "border-up-500/40 bg-ink-800/95 text-up-400" : t.tone === "bad" ? "border-down-500/40 bg-ink-800/95 text-down-400" : "border-info-400/40 bg-ink-800/95 text-info-400")}>
+          <div key={t.id} className={cx("rounded-lg border px-4 py-3 text-sm shadow-panel animate-rise backdrop-blur", t.tone === "ok" ? "border-up-500/40 bg-white text-up-400" : t.tone === "bad" ? "border-down-500/40 bg-white text-down-400" : "border-info-400/40 bg-white text-info-400")}>
             {t.text}
           </div>
         ))}
@@ -126,7 +126,7 @@ export function Modal({ open, title, children, onClose }: { open: boolean; title
   }, [onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#18202B]/30 backdrop-blur-sm" onClick={onClose} role="dialog" aria-modal="true">
       <div className="w-[520px] max-w-[92vw] rounded-xl border border-ink-600 bg-ink-850 p-5 shadow-panel animate-rise" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-3 text-base font-semibold">{title}</h3>
         {children}
